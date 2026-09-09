@@ -57,14 +57,14 @@ void Face::applyColor565(uint16_t c) {
   if (c == eyeCol) return;
   eyeCol = c;
   uint8_t r = (c >> 11) << 3, g = ((c >> 5) & 0x3F) << 2, b = (c & 0x1F) << 3;
-  mouthInner = tft_.color565(r / 4, g / 4, b / 4);       // mouth interior: a dark version of the eye colour
+  mouthInner = pxRGB(r / 4, g / 4, b / 4);       // mouth interior: a dark version of the eye colour
   dirty_ = true;
 }
 
 void Face::setEyeColor(uint32_t rgb) {
   baseRGB_ = rgb;
   curR_ = rgb >> 16; curG_ = (rgb >> 8) & 0xFF; curB_ = rgb & 0xFF;   // jump straight to the new base
-  applyColor565(tft_.color565(curR_, curG_, curB_));
+  applyColor565(pxRGB(curR_, curG_, curB_));
 }
 
 void Face::setMoodColor(Expression e, uint32_t rgb) { if (e < EXPR_COUNT) mood_[e] = rgb; }
@@ -176,7 +176,7 @@ void Face::update() {
   uint32_t target = mood_[current_] ? mood_[current_] : baseRGB_;
   float tr = target >> 16, tg = (target >> 8) & 0xFF, tb = target & 0xFF;
   ease(curR_, tr, 0.12f); ease(curG_, tg, 0.12f); ease(curB_, tb, 0.12f);
-  applyColor565(tft_.color565((uint8_t)lroundf(curR_), (uint8_t)lroundf(curG_), (uint8_t)lroundf(curB_)));
+  applyColor565(pxRGB((uint8_t)lroundf(curR_), (uint8_t)lroundf(curG_), (uint8_t)lroundf(curB_)));
 
   FaceParams p = cur_;
   p.gazeX = constrain(p.gazeX + gx_, -1.0f, 1.0f);
@@ -266,7 +266,7 @@ void Face::renderSleepZs() {
   lastZ_ = now;
   tft_.fillRect(0, 0, SCREEN_W, 40, TFT_BLACK);
   zsDirty_ = true;
-  tft_.setTextColor(tft_.color565(170, 160, 120), TFT_BLACK);
+  tft_.setTextColor(pxRGB(170, 160, 120), TFT_BLACK);
   tft_.setTextDatum(MC_DATUM);
   float phase = (now % 2400) / 2400.0f;
   int baseX = SCREEN_W / 2 + (int)(cur_.spacing / 2) + 30;

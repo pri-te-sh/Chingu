@@ -8,7 +8,7 @@
 #include <qrcode.h>
 
 // ---- palette (true RGB now that TFT_RGB_ORDER is set) ----
-#define RGB(r, g, b) ((uint16_t)((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3)))
+#define RGB(r, g, b) pxRGB((r), (g), (b))
 static const uint16_t BG = RGB(8, 10, 16), SURF = RGB(20, 24, 36), CARD = RGB(30, 36, 54), EDGE = RGB(52, 60, 84);
 static const uint16_t AMBER = RGB(255, 196, 0), CYAN = RGB(0, 205, 255), GREEN = RGB(70, 220, 130), RED = RGB(255, 90, 90);
 static const uint16_t TXT = RGB(236, 238, 245), MUTED = RGB(128, 138, 160), INK = RGB(20, 20, 24);

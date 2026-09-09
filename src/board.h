@@ -16,6 +16,10 @@
 // Buttons
 #define PIN_BOOT_BTN 0
 
+// This ST7789P3 panel ignores the MADCTL colour-order bit and shows R and B swapped, so every colour we
+// compose goes through pxRGB(), which pre-swaps. (Greys and TFT_BLACK/TFT_WHITE are unaffected.)
+static inline uint16_t pxRGB(uint8_t r, uint8_t g, uint8_t b) { return (uint16_t)(((b & 0xF8) << 8) | ((g & 0xFC) << 3) | (r >> 3)); }
+
 // Screen orientation used by the face: landscape
 #define SCREEN_ROTATION 1
 #define SCREEN_W 320
