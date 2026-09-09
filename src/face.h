@@ -43,7 +43,9 @@ public:
   void wake();
   bool asleep() const { return current_ == EXPR_ASLEEP; }
   void setAutoSleep(uint32_t ms) { autoSleepMs_ = ms; }
-  void setEyeColor(uint16_t c565);
+  void setEyeColor(uint32_t rgb);                 // base colour 0xRRGGBB
+  void setMoodColor(Expression e, uint32_t rgb);   // 0 = no tint for that expression
+  uint32_t moodColor(Expression e) const { return e < EXPR_COUNT ? mood_[e] : 0; }
   bool hitEye(int16_t sx, int16_t sy) const;
   uint32_t takeMaxFrameUs() { uint32_t v = maxFrameUs_; maxFrameUs_ = 0; return v; }
 
@@ -69,4 +71,7 @@ private:
   bool zsDirty_ = false;
   uint32_t maxFrameUs_ = 0;
   bool dirty_ = true;
+  uint32_t baseRGB_ = 0xEBE128, mood_[EXPR_COUNT] = {0};
+  float curR_ = 235, curG_ = 225, curB_ = 40;
+  void applyColor565(uint16_t c);
 };

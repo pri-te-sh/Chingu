@@ -53,19 +53,30 @@ FaceParams Face::targetFor(Expression e, float intensity) const {
   return t;
 }
 
-void Face::setEyeColor(uint16_t c) {
+void Face::applyColor565(uint16_t c) {
+  if (c == eyeCol) return;
   eyeCol = c;
-  // mouth interior: a dark version of the eye colour
   uint8_t r = (c >> 11) << 3, g = ((c >> 5) & 0x3F) << 2, b = (c & 0x1F) << 3;
-  mouthInner = tft_.color565(r / 4, g / 4, b / 4);
+  mouthInner = tft_.color565(r / 4, g / 4, b / 4);       // mouth interior: a dark version of the eye colour
   dirty_ = true;
 }
+
+void Face::setEyeColor(uint32_t rgb) {
+  baseRGB_ = rgb;
+  curR_ = rgb >> 16; curG_ = (rgb >> 8) & 0xFF; curB_ = rgb & 0xFF;   // jump straight to the new base
+  applyColor565(tft_.color565(curR_, curG_, curB_));
+}
+
+void Face::setMoodColor(Expression e, uint32_t rgb) { if (e < EXPR_COUNT) mood_[e] = rgb; }
 
 // ---------- lifecycle ----------
 Face::Face(TFT_eSPI& tft) : tft_(tft), eyeL_(&tft), eyeR_(&tft), mouth_(&tft) {}
 
 void Face::begin() {
-  if (eyeCol == 0) setEyeColor(tft_.color565(235, 225, 40));   // amber default; the portal can change it
+  if (eyeCol == 0) setEyeColor(0xEBE128);   // amber default; the portal can change it
+  // default mood tints (portal can override / clear): pink blush, angry red, sad blue, thinking cyan, surprise flash
+  mood_[EXPR_LOVE] = 0xFF6AD5; mood_[EXPR_ANNOYED] = 0xFF4A4A; mood_[EXPR_SAD] = 0x4C8DFF;
+  mood_[EXPR_THINKING] = 0x4CC9F0; mood_[EXPR_SURPRISED] = 0xFFFFFF; mood_[EXPR_EXCITED] = 0xFFD23F; mood_[EXPR_SUSPICIOUS] = 0xB388FF;
   eyeL_.setColorDepth(16); eyeR_.setColorDepth(16); mouth_.setColorDepth(16);
   if (!eyeL_.createSprite(EYE_SPR, EYE_SPR) || !eyeR_.createSprite(EYE_SPR, EYE_SPR) || !mouth_.createSprite(MOUTH_W, MOUTH_H))
     Serial.println("[face] sprite allocation FAILED");
@@ -160,6 +171,12 @@ void Face::update() {
   breath_ = sinf(now / period * TWO_PI) * amp;
 
   easeParams(sleeping || current_ == EXPR_SURPRISED ? 0.28f : 0.18f);
+
+  // mood tint: ease the eye colour toward the current expression's tint (or back to base)
+  uint32_t target = mood_[current_] ? mood_[current_] : baseRGB_;
+  float tr = target >> 16, tg = (target >> 8) & 0xFF, tb = target & 0xFF;
+  ease(curR_, tr, 0.12f); ease(curG_, tg, 0.12f); ease(curB_, tb, 0.12f);
+  applyColor565(tft_.color565((uint8_t)lroundf(curR_), (uint8_t)lroundf(curG_), (uint8_t)lroundf(curB_)));
 
   FaceParams p = cur_;
   p.gazeX = constrain(p.gazeX + gx_, -1.0f, 1.0f);

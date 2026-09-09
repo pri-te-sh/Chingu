@@ -12,4 +12,6 @@ void load();
 void save();
 void apply(Face& face, TFT_eSPI& tft);
 bool setFromHex(const char* hex);   // "#RRGGBB" -> eyeRGB
+bool parseHex(const char* hex, uint32_t& out);
+extern char moods[160];             // "love=FF6AD5,annoyed=FF4A4A,..." ("-" = tint off)
 }

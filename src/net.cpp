@@ -63,6 +63,15 @@ static void onEvent(WStype_t type, uint8_t* payload, size_t len) {
         strlcpy(prefs::name, d["name"] | prefs::name, sizeof prefs::name);
         prefs::setFromHex(d["eye_color"] | "");
         prefs::autoSleepS = d["auto_sleep_s"] | prefs::autoSleepS;
+        if (d["mood_colors"].is<JsonObject>()) {            // {"love":"#FF6AD5","sad":"-",...}
+          String m;
+          for (JsonPair kv : d["mood_colors"].as<JsonObject>()) {
+            const char* v = kv.value().as<const char*>(); if (!v) continue;
+            if (m.length()) m += ",";
+            m += kv.key().c_str(); m += "="; m += (v[0] == '#') ? v + 1 : "-";
+          }
+          strlcpy(prefs::moods, m.c_str(), sizeof prefs::moods);
+        }
         prefs::save(); prefs::apply(*face_, *tft_);
         dbg::log("[net] config: %s eyes #%06X sleep %us", prefs::name, prefs::eyeRGB, prefs::autoSleepS);
       }

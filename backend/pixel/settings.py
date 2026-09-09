@@ -21,6 +21,10 @@ DEFAULTS = {
     "tools_web": True,
     "web_results": 3,
     "tool_narration": True,
+    # eye tint per expression while it holds ("-" = keep base colour); eases back to eye_color afterwards
+    "mood_colors": {"love": "#FF6AD5", "annoyed": "#FF4A4A", "sad": "#4C8DFF", "thinking": "#4CC9F0",
+                    "surprised": "#FFFFFF", "excited": "#FFD23F", "suspicious": "#B388FF",
+                    "happy": "-", "curious": "-", "listening": "-", "sleepy": "-", "asleep": "-", "neutral": "-"},
 }
 
 _cfg: dict | None = None
@@ -48,6 +52,8 @@ def update(patch: dict) -> dict:
         if k in DEFAULTS and v is not None:
             if k == "tone" and isinstance(v, dict):
                 cfg["tone"] = {**cfg["tone"], **{kk: float(vv) for kk, vv in v.items() if kk in cfg["tone"]}}
+            elif k == "mood_colors" and isinstance(v, dict):
+                cfg["mood_colors"] = {**DEFAULTS["mood_colors"], **{kk: str(vv) for kk, vv in v.items() if kk in DEFAULTS["mood_colors"]}}
             elif isinstance(DEFAULTS[k], bool):
                 cfg[k] = bool(v)
             elif isinstance(DEFAULTS[k], int):
@@ -61,4 +67,5 @@ def update(patch: dict) -> dict:
 def device_config() -> dict:
     """The subset pushed to the ESP32."""
     cfg = get()
-    return {"type": "config", "name": cfg["name"], "eye_color": cfg["eye_color"], "auto_sleep_s": cfg["auto_sleep_s"]}
+    return {"type": "config", "name": cfg["name"], "eye_color": cfg["eye_color"], "auto_sleep_s": cfg["auto_sleep_s"],
+            "mood_colors": cfg.get("mood_colors", DEFAULTS["mood_colors"])}
