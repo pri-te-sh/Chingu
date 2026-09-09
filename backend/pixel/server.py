@@ -17,7 +17,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
-from . import config as C, llm, memory, settings, store, stt, tts
+from . import config as C, llm, memory, settings, store, stt, tools, tts
 from .vad import EnergyVAD
 
 app = FastAPI(title="pixel-brain")
@@ -125,6 +125,8 @@ async def respond(ws: WebSocket | None, device: str, user_text: str, want_audio=
     expr, inten = "neutral", 0.6
     t_expr = t_audio = None
     audio_bytes = 0
+    tools_used: list[dict] = []
+    tool_defs = tools.definitions() if cfg.get("tools_enabled", True) else None
 
     async def speak(text: str):
         nonlocal speech_started, t_audio, audio_bytes
@@ -141,7 +143,33 @@ async def respond(ws: WebSocket | None, device: str, user_text: str, want_audio=
         for i in range(0, len(pcm), C.AUDIO_FRAME_BYTES):
             await ws.send_bytes(pcm[i:i + C.AUDIO_FRAME_BYTES])
 
-    async for delta in llm.stream_reply(memory.system_prompt(), messages, cfg["chat_model"], cfg["chat_think"]):
+    async def stream_with_tools():
+        """Stream the reply; if the model calls tools, run them, feed results back, and stream again (max 2 rounds)."""
+        nonlocal messages
+        for _round in range(3):
+            calls = None
+            async for kind, payload in llm.stream_reply(memory.system_prompt(), messages, cfg["chat_model"], cfg["chat_think"], tool_defs):
+                if kind == "delta":
+                    yield payload
+                else:
+                    calls = payload
+            if not calls or _round == 2:
+                return
+            # tell the client (face) what is happening, and speak a short filler once so the pause feels alive
+            if ws:
+                await send_json(ws, type="expression", name="thinking", intensity=0.9)
+                for c in calls:
+                    await send_json(ws, type="tool", name=c.get("function", {}).get("name"), args=c.get("function", {}).get("arguments"))
+            if _round == 0 and cfg.get("tool_filler") and any(c.get("function", {}).get("name", "").startswith("web") for c in calls):
+                await speak(cfg["tool_filler"])
+            results = await asyncio.gather(*(tools.run(c) for c in calls))
+            messages = messages + [{"role": "assistant", "content": "", "tool_calls": calls}]
+            for (name, args, res), c in zip(results, calls):
+                tools_used.append({"name": name, "args": args, "result": res[:300]})
+                print(f"[pixel] tool {name}({args}) -> {res[:120]!r}")
+                messages = messages + [{"role": "tool", "tool_name": name, "content": res}]
+
+    async for delta in stream_with_tools():
         if not tag_done:
             tagged += delta
             parsed = llm.parse_tag(tagged)
@@ -169,7 +197,7 @@ async def respond(ws: WebSocket | None, device: str, user_text: str, want_audio=
 
     turn = memory.log_turn({"device": device, "user": user_text, "reply": spoken_all, "expr": expr, "intensity": inten,
                             "t_expr": round((t_expr or 0) * 1000), "t_audio": round((t_audio or 0) * 1000), "t_done": round(t_done * 1000),
-                            "audio_s": round(audio_bytes / 32000, 1), "model": cfg["chat_model"]})
+                            "audio_s": round(audio_bytes / 32000, 1), "model": cfg["chat_model"], "tools": tools_used})
     latency_log.append({k: turn[k] for k in ("ts", "t_expr", "t_audio", "t_done")}); del latency_log[:-50]
     print(f"[pixel] {device}: {expr} {inten:.1f} @{turn['t_expr']}ms, audio @{turn['t_audio']}ms, done {turn['t_done']}ms: {spoken_all!r}")
     asyncio.create_task(memory.extract_after_turn())

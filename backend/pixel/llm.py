@@ -29,10 +29,14 @@ def _headers():
     return {"Authorization": f"Bearer {C.OLLAMA_API_KEY}"} if C.OLLAMA_API_KEY else {}
 
 
-async def stream_reply(system_prompt: str, history: list[dict], model: str, think: bool = False):
-    """Async generator of text deltas from the conversation model."""
-    body = {"model": model, "stream": True, "think": think, "options": {"temperature": 0.8, "num_predict": 160},
+async def stream_reply(system_prompt: str, history: list[dict], model: str, think: bool = False, tools: list[dict] | None = None):
+    """Async generator. Yields ("delta", text) for spoken text and, if the model decides to use tools,
+    a single ("tools", [tool_calls]) at the end of that pass (content is normally empty in that case)."""
+    body = {"model": model, "stream": True, "think": think, "options": {"temperature": 0.8, "num_predict": 200},
             "messages": [{"role": "system", "content": system_prompt}, *history]}
+    if tools:
+        body["tools"] = tools
+    calls = []
     async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as client:
         async with client.stream("POST", f"{C.OLLAMA_HOST}/api/chat", json=body, headers=_headers()) as r:
             r.raise_for_status()
@@ -40,11 +44,16 @@ async def stream_reply(system_prompt: str, history: list[dict], model: str, thin
                 if not line:
                     continue
                 msg = json.loads(line)
-                delta = msg.get("message", {}).get("content", "")
+                m = msg.get("message", {})
+                if m.get("tool_calls"):
+                    calls += m["tool_calls"]
+                delta = m.get("content", "")
                 if delta:
-                    yield delta
+                    yield "delta", delta
                 if msg.get("done"):
                     break
+    if calls:
+        yield "tools", calls
 
 
 async def chat_once(messages: list[dict], model: str, think: bool = False, json_mode: bool = False, timeout: float = 120) -> str:

@@ -17,6 +17,10 @@ DEFAULTS = {
     "history_turns": 12,
     "timezone": "America/New_York",
     "tone": {"cheeky": 0.6, "chatty": 0.4},
+    "tools_enabled": True,
+    "tools_web": True,
+    "web_results": 3,
+    "tool_filler": "Let me check.",
 }
 
 _cfg: dict | None = None

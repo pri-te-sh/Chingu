@@ -181,6 +181,10 @@ def system_prompt() -> str:
     if fu:
         lines.append("\nThings you meant to ask about when the moment is right:")
         lines += [f"- {f['text']}" + (f" (around {f['due']})" if f.get("due") else "") for f in fu[:6]]
+    if settings.get().get("tools_enabled", True):
+        lines.append("\nTools: use web_search whenever the answer depends on the real world right now (weather, news, scores, prices, opening hours, facts you are not sure of); "
+                     "use remember when the owner shares something durable or asks you to remember; use follow_up for things to check on later. "
+                     "After a tool result, answer in one or two spoken sentences - never read out URLs or lists.")
     lines.append(
         "\nEvery reply MUST start with an expression tag in square brackets: the expression name and an intensity 0-1, e.g. \"[happy 0.8] \". "
         f"Allowed expressions: {', '.join(e for e in llm.C.EXPRESSIONS if e not in ('asleep', 'listening'))}. "
