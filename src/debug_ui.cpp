@@ -397,32 +397,24 @@ void DebugUI::drawSystem() {
 }
 
 void DebugUI::drawPortal() {
-  char url[200];
-  snprintf(url, sizeof url, "%s://%s%s/portal?token=%s", net::tls() ? "https" : "http", net::backendHost(),
-           (net::backendPort() == 443 || net::backendPort() == 80) ? "" : (String(":") + net::backendPort()).c_str(), net::token());
-  // QR: version 6 (41x41) holds ~130 chars at ECC low; scale so it fills the left column
-  QRCode qr; uint8_t data[qrcode_getBufferSize(6)];
-  bool ok = qrcode_initText(&qr, data, 6, ECC_LOW, url) == 0;
+  // QR opens the portal; pairing happens with the code shown below (PROFILE > Add a Pixel)
+  char url[160];
+  snprintf(url, sizeof url, "%s://%s%s/portal", net::tls() ? "https" : "http", net::backendHost(),
+           (net::backendPort() == 443 || net::backendPort() == 80) ? "" : (String(":") + net::backendPort()).c_str());
+  QRCode qr; uint8_t data[qrcode_getBufferSize(5)];
+  bool ok = qrcode_initText(&qr, data, 5, ECC_LOW, url) == 0;
   const int scale = 4, size = qr.size * scale, x0 = 14, y0 = HDR + (SCREEN_H - HDR - size) / 2;
   tft_.fillRect(x0 - 6, y0 - 6, size + 12, size + 12, TFT_WHITE);
   if (ok) for (uint8_t y = 0; y < qr.size; y++) for (uint8_t x = 0; x < qr.size; x++)
     if (qrcode_getModule(&qr, x, y)) tft_.fillRect(x0 + x * scale, y0 + y * scale, scale, scale, TFT_BLACK);
   int tx = x0 + size + 22, y = HDR + 14;
   tft_.setTextDatum(TL_DATUM); tft_.setTextColor(TXT, BG);
-  tft_.drawString("Scan to open the", tx, y, 2); y += 18;
-  tft_.drawString("portal, signed in.", tx, y, 2); y += 30;
-  tft_.setTextColor(MUTED, BG); tft_.drawString("Address", tx, y, 1); y += 12;
-  tft_.setTextColor(CYAN, BG);
-  String host = net::backendHost(); int cut = host.indexOf(".");       // wrap the long host at its first dot
-  tft_.drawString(host.substring(0, cut + 1), tx, y, 2); y += 16;
-  tft_.drawString(host.substring(cut + 1) + "/portal", tx, y, 2); y += 26;
-  tft_.setTextColor(MUTED, BG); tft_.drawString("Access token", tx, y, 1); y += 12;
-  String tok = net::token(); if (!tok.length()) tok = "(none - local dev)";
-  tft_.setTextColor(AMBER, BG);
-  tft_.drawString(tok.substring(0, 16), tx, y, 2); y += 16;
-  tft_.drawString(tok.substring(16), tx, y, 2); y += 26;
-  tft_.setTextColor(MUTED, BG); tft_.drawString("Anyone with this token controls Pixel.", tx, y, 1);
-  if (!ok) { tft_.setTextColor(RED, BG); tft_.drawString("QR too long", x0, y0, 2); }
+  tft_.drawString("Scan to open", tx, y, 2); y += 18; tft_.drawString("the portal.", tx, y, 2); y += 28;
+  tft_.setTextColor(MUTED, BG); tft_.drawString("Device", tx, y, 1); y += 12;
+  tft_.setTextColor(CYAN, BG); tft_.drawString(prefs::deviceId(), tx, y, 2); y += 24;
+  tft_.setTextColor(MUTED, BG); tft_.drawString("Pairing", tx, y, 1); y += 12;
+  if (net::pairingCode()[0]) { tft_.setTextColor(AMBER, BG); tft_.drawString(net::pairingCode(), tx, y, 4); y += 30; tft_.setTextColor(MUTED, BG); tft_.drawString("enter this in PROFILE > Add a Pixel", tx, y, 1); }
+  else { tft_.setTextColor(GREEN, BG); tft_.drawString(net::connected() ? "paired" : "connecting...", tx, y, 2); y += 22; tft_.setTextColor(MUTED, BG); tft_.drawString("hold BOOT 10 s to reset Wi-Fi + pairing", tx, y, 1); }
 }
 
 // =========================================================== input / refresh

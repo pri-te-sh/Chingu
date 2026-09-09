@@ -348,8 +348,8 @@ async def ws_endpoint(ws: WebSocket):
                         if not sess.first_status:
                             sess.first_status = True
                             await repo.device_event(sess.pid, "status", rssi=data.get("rssi"), ip=data.get("ip"), fw=data.get("fw"))
-                            if data.get("fw") or data.get("reset_reason"):
-                                await repo.update_pixel(sess.pid, fw_version=data.get("fw"), reset_reason=data.get("reset_reason"))
+                            if data.get("fw") or data.get("reset_reason") is not None:
+                                await repo.update_pixel(sess.pid, fw_version=str(data.get("fw") or ""), reset_reason=str(data.get("reset_reason")))
                     ambient.maybe_refresh(cfg)
                 elif t == "log":
                     for line in (data.get("lines") or [])[:50]: await repo.device_log(sess.pid, data.get("level", "info"), str(line))

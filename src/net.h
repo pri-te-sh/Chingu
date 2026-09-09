@@ -1,13 +1,12 @@
-// Wi-Fi + WebSocket link to Pixel's brain. Compiles to a no-op if include/secrets.h is absent.
+// Wi-Fi + WebSocket link to Pixel's brain, device provisioning (SoftAP captive portal) and pairing.
 #pragma once
 #include <Arduino.h>
-#include "face.h"
 #include <TFT_eSPI.h>
+#include "face.h"
 
 namespace net {
-// Timeline of the most recent conversational turn (ms since sendText / end of utterance).
 struct Turn {
-  uint32_t t0 = 0;                      // millis() when we sent
+  uint32_t t0 = 0;
   uint32_t tTranscript = 0, tExpr = 0, tFirstAudio = 0, tSpeechEnd = 0, tReply = 0;
   uint32_t audioBytes = 0;
   char expr[16] = "";
@@ -17,20 +16,23 @@ struct Turn {
   bool active = false, done = false;
 };
 
+enum State : uint8_t { PROVISIONING, CONNECTING_WIFI, CONNECTING_BRAIN, PAIRING, READY };
+
 void begin(Face& face, TFT_eSPI& tft);
 void loop();
+State state();
 bool wifiUp();
-bool connected();                       // WebSocket session up (brain said "ready")
+bool connected();                       // paired + brain said "ready"
 const char* backendHost();
 uint16_t backendPort();
-const char* token();
 bool tls();
-void sendText(const char* text);        // typed input -> backend (testing path until the mic exists)
+const char* pairingCode();              // "" unless the brain is waiting for the owner to claim us
+const char* apName();                   // SoftAP name while provisioning
+void startProvisioning();               // drop Wi-Fi creds and open the setup portal
+void sendText(const char* text);
 void sendAudio(const uint8_t* pcm16, size_t len);
 void sendEnd();
 const Turn& lastTurn();
-
-// latency probe: sendPing() then poll pongRtt() (>0 when answered, 0 pending)
 bool sendPing();
 uint32_t pongRtt();
 }

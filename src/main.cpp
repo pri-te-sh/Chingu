@@ -1,7 +1,7 @@
 // Pixel - Tiny AI Companion firmware. Phase 2: animated face with autonomous behaviour.
 // Controls for testing: BOOT button cycles expressions; serial commands (115200):
 //   expr <name> [intensity 0-1] [holdMs]   list   sleep   wake   look <x> <y>   say <text>   net   debug   verbose
-// Long-press BOOT (>=1.5 s) or hold the screen 2 s: settings/diagnostics mode.
+// Long-press BOOT (>=1.5 s) or hold the screen 2 s: settings/diagnostics mode. Hold BOOT 10 s: factory reset (Wi-Fi + pairing).
 #include <Arduino.h>
 #include <TFT_eSPI.h>
 #include "board.h"
@@ -14,6 +14,32 @@
 TFT_eSPI tft;
 Face face(tft);
 DebugUI debugUi(tft);
+
+// Setup / pairing overlay drawn over the face: AP name while provisioning, the pairing code while unclaimed.
+static void drawStateOverlay() {
+  static net::State last = net::READY; static char lastCode[8] = ""; static uint32_t lastDraw = 0;
+  net::State st = net::state();
+  bool changed = st != last || strcmp(lastCode, net::pairingCode()) != 0;
+  if (!changed && millis() - lastDraw < 1000) return;
+  lastDraw = millis();
+  if (st == net::READY) { if (changed) { face.begin(); prefs::apply(face, tft); } last = st; lastCode[0] = 0; return; }
+  last = st; strlcpy(lastCode, net::pairingCode(), sizeof lastCode);
+  if (!changed) return;
+  tft.fillRect(0, 168, SCREEN_W, SCREEN_H - 168, TFT_BLACK);
+  tft.setTextDatum(MC_DATUM);
+  if (st == net::PROVISIONING) {
+    tft.setTextColor(pxRGB(245, 179, 1), TFT_BLACK); tft.drawString("Let's get me online", SCREEN_W / 2, 182, 2);
+    tft.setTextColor(pxRGB(236, 238, 245), TFT_BLACK); tft.drawString(String("Join Wi-Fi  ") + net::apName(), SCREEN_W / 2, 204, 2);
+    tft.setTextColor(pxRGB(140, 150, 180), TFT_BLACK); tft.drawString("then open http://192.168.4.1", SCREEN_W / 2, 224, 2);
+  } else if (st == net::PAIRING) {
+    tft.setTextColor(pxRGB(236, 238, 245), TFT_BLACK); tft.drawString("Add me in the portal with code", SCREEN_W / 2, 180, 2);
+    tft.setTextColor(pxRGB(245, 179, 1), TFT_BLACK); tft.drawString(net::pairingCode(), SCREEN_W / 2, 212, 6);
+  } else if (st == net::CONNECTING_WIFI) {
+    tft.setTextColor(pxRGB(140, 150, 180), TFT_BLACK); tft.drawString(String("connecting to ") + prefs::wifiSsid + "...", SCREEN_W / 2, 200, 2);
+  } else if (st == net::CONNECTING_BRAIN) {
+    tft.setTextColor(pxRGB(140, 150, 180), TFT_BLACK); tft.drawString("reaching my brain...", SCREEN_W / 2, 200, 2);
+  }
+}
 
 static void toggleDebug() { if (debugUi.active()) { debugUi.exit(); face.begin(); prefs::apply(face, tft); } else debugUi.enter(); }
 
@@ -54,6 +80,10 @@ static void handleSerial() {
       } else if (!strcmp(cmd, "sleep")) { face.setExpression(EXPR_ASLEEP); Serial.println("ok sleep"); }
       else if (!strcmp(cmd, "wake")) { face.wake(); Serial.println("ok wake"); }
       else if (!strcmp(cmd, "debug")) toggleDebug();
+      else if (!strcmp(cmd, "setup")) { prefs::wifiSsid[0] = 0; prefs::save(); ESP.restart(); }
+      else if (!strcmp(cmd, "unpair")) { prefs::token[0] = 0; prefs::save(); ESP.restart(); }
+      else if (!strcmp(cmd, "factory")) { prefs::factoryReset(); ESP.restart(); }
+      else if (!strcmp(cmd, "id")) Serial.printf("device %s brain %s:%u tls %d paired %d\n", prefs::deviceId(), prefs::brainHost, prefs::brainPort, prefs::brainTls, prefs::hasToken());
       else if (!strcmp(cmd, "verbose")) { dbg::verbose = !dbg::verbose; Serial.printf("verbose %s\n", dbg::verbose ? "on" : "off"); }
       else if (!strcmp(cmd, "net")) Serial.printf("net: %s\n", net::connected() ? "connected" : "not connected");
       else if (!strcmp(cmd, "look") && a1 && a2) { face.lookAt(atof(a1), atof(a2), 1500); Serial.println("ok look"); }
@@ -85,7 +115,7 @@ void setup() {
 }
 
 void loop() {
-  if (debugUi.active()) debugUi.update(); else face.update();
+  if (debugUi.active()) debugUi.update(); else { face.update(); drawStateOverlay(); }
   net::loop();
   handleSerial();
 
@@ -111,6 +141,11 @@ void loop() {
   bool btn = digitalRead(PIN_BOOT_BTN);
   if (!btn && btnWas) { btnDown = millis(); btnLong = false; }
   if (!btn && !btnLong && millis() - btnDown > 1500) { btnLong = true; toggleDebug(); }
+  static bool resetDone = false;
+  if (!btn && millis() - btnDown > 10000 && !resetDone) {          // held 10 s: forget Wi-Fi + pairing, back to setup
+    resetDone = true; dbg::log("[pixel] factory reset requested"); prefs::factoryReset(); delay(300); ESP.restart();
+  }
+  if (btn) resetDone = false;
   if (btn && !btnWas && !btnLong && millis() - btnDown > 30 && !debugUi.active()) {
     Expression next = (Expression)((face.expression() + 1) % EXPR_COUNT);
     face.setExpression(next);

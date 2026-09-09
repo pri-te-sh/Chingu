@@ -2,68 +2,144 @@
 #include "board.h"
 #include "log.h"
 #include "prefs.h"
-
-#if __has_include("secrets.h")
-#include "secrets.h"
-#define NET_ENABLED 1
 #include <WiFi.h>
+#include <WebServer.h>
+#include <DNSServer.h>
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
-#else
-#define NET_ENABLED 0
-#endif
 
 namespace net {
 
 static Turn turn_;
 const Turn& lastTurn() { return turn_; }
 
-#if NET_ENABLED
 static WebSocketsClient ws;
 static Face* face_ = nullptr;
 static TFT_eSPI* tft_ = nullptr;
-static bool ready_ = false;
-static uint32_t pingSent_ = 0, pongRtt_ = 0, holdOffUntil_ = 0;
+static State state_ = CONNECTING_WIFI;
+static bool ready_ = false, wsBegun_ = false;
+static uint32_t pingSent_ = 0, pongRtt_ = 0, holdOffUntil_ = 0, lastStatus_ = 0;
+static char pairingCode_[8] = "";
+static char apName_[24] = "";
+static WebServer* http_ = nullptr;
+static DNSServer* dns_ = nullptr;
 
-static void sendStatus();
+State state() { return state_; }
+const char* pairingCode() { return pairingCode_; }
+const char* apName() { return apName_; }
+bool wifiUp() { return WiFi.status() == WL_CONNECTED; }
+bool connected() { return ready_; }
+const char* backendHost() { return prefs::brainHost; }
+uint16_t backendPort() { return prefs::brainPort; }
+bool tls() { return prefs::brainTls; }
+
 static void setLedBlue(bool on) { digitalWrite(PIN_LED_B, on ? LOW : HIGH); }
 static uint32_t since() { return millis() - turn_.t0; }
+static void sendStatus();
+static void wsConnect();
 
+// ------------------------------------------------------------------ provisioning (SoftAP captive portal)
+static const char SETUP_HTML[] PROGMEM = R"HTML(<!doctype html><html><head><meta name=viewport content="width=device-width,initial-scale=1"><title>Set up Pixel</title>
+<style>body{font-family:-apple-system,system-ui,sans-serif;background:#0e1020;color:#eef;margin:0;padding:24px}h1{color:#f5b301;font-size:22px}
+label{display:block;margin:14px 0 6px;font-size:13px;color:#9aa}input,select{width:100%%;padding:12px;border:2px solid #2f3559;background:#181c33;color:#fff;border-radius:8px;font-size:16px}
+button{margin-top:20px;width:100%%;padding:14px;background:#f5b301;border:0;border-radius:8px;font-weight:700;font-size:16px}small{color:#9aa}</style></head><body>
+<h1>Hi, I'm %NAME%</h1><p>Tell me which Wi-Fi to join. I'll then show a pairing code on my face - add me in the Pixel portal with it.</p>
+<form method=post action=/save><label>Wi-Fi network</label><select name=ssid id=ssid>%NETS%</select><input name=ssid2 placeholder="or type a network name" style="margin-top:8px">
+<label>Password</label><input name=pass type=password><label>Brain address <small>(leave as is unless told otherwise)</small></label><input name=host value="%HOST%">
+<input type=hidden name=port value="%PORT%"><input type=hidden name=tls value="%TLS%"><button>Save & connect</button></form></body></html>)HTML";
+
+static String scanOptions() {
+  String o; int n = WiFi.scanNetworks();
+  for (int i = 0; i < n && i < 15; i++) o += "<option>" + WiFi.SSID(i) + "</option>";
+  return o.length() ? o : "<option>(no networks found - type one below)</option>";
+}
+
+static void handleRoot() {
+  String page = FPSTR(SETUP_HTML);
+  page.replace("%NAME%", prefs::name); page.replace("%NETS%", scanOptions());
+  page.replace("%HOST%", prefs::brainHost); page.replace("%PORT%", String(prefs::brainPort)); page.replace("%TLS%", prefs::brainTls ? "1" : "0");
+  http_->send(200, "text/html", page);
+}
+
+static void handleSave() {
+  String ssid = http_->arg("ssid2").length() ? http_->arg("ssid2") : http_->arg("ssid");
+  strlcpy(prefs::wifiSsid, ssid.c_str(), sizeof prefs::wifiSsid);
+  strlcpy(prefs::wifiPass, http_->arg("pass").c_str(), sizeof prefs::wifiPass);
+  String host = http_->arg("host"); host.trim();
+  if (host.length()) {                      // accept "host", "host:port", "https://host"
+    prefs::brainTls = host.startsWith("https://"); host.replace("https://", ""); host.replace("http://", "");
+    int c = host.indexOf(':');
+    if (c > 0) { prefs::brainPort = host.substring(c + 1).toInt(); host = host.substring(0, c); }
+    else prefs::brainPort = prefs::brainTls ? 443 : http_->arg("port").toInt();
+    strlcpy(prefs::brainHost, host.c_str(), sizeof prefs::brainHost);
+  }
+  prefs::save();
+  http_->send(200, "text/html", "<html><body style='font-family:sans-serif;background:#0e1020;color:#eef;padding:24px'><h1 style='color:#f5b301'>Got it!</h1><p>Connecting to <b>" + ssid + "</b>. Watch my face for the pairing code.</p></body></html>");
+  dbg::log("[net] provisioned ssid=%s brain=%s:%u tls=%d", prefs::wifiSsid, prefs::brainHost, prefs::brainPort, prefs::brainTls);
+  delay(600);
+  ESP.restart();
+}
+
+void startProvisioning() {
+  state_ = PROVISIONING;
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_AP_STA);
+  uint8_t mac[6]; WiFi.macAddress(mac);
+  snprintf(apName_, sizeof apName_, "Pixel-%02X%02X", mac[4], mac[5]);
+  WiFi.softAP(apName_);
+  delay(100);
+  dns_ = new DNSServer(); dns_->start(53, "*", WiFi.softAPIP());          // captive: every name -> us
+  http_ = new WebServer(80);
+  http_->on("/", handleRoot); http_->on("/save", HTTP_POST, handleSave);
+  http_->onNotFound([]() { http_->sendHeader("Location", "http://" + WiFi.softAPIP().toString() + "/", true); http_->send(302, "text/plain", ""); });
+  http_->begin();
+  dbg::log("[net] setup mode: join Wi-Fi '%s' and open http://%s", apName_, WiFi.softAPIP().toString().c_str());
+}
+
+// ------------------------------------------------------------------ brain link
 static void onEvent(WStype_t type, uint8_t* payload, size_t len) {
   switch (type) {
     case WStype_CONNECTED: {
       dbg::log("[net] ws connected");
+      state_ = CONNECTING_BRAIN;
       JsonDocument d;
-      d["type"] = "hello"; d["token"] = BACKEND_TOKEN; d["device"] = "pixel";
+      d["type"] = "hello"; d["device"] = prefs::deviceId(); d["device_type"] = "lite"; d["fw"] = __DATE__ " " __TIME__;
+      if (prefs::hasToken()) d["token"] = prefs::token;
+      JsonObject caps = d["capabilities"].to<JsonObject>();
+      caps["speaker"] = false; caps["mic"] = false; caps["camera"] = false; caps["touch"] = true; caps["display"] = "320x240";
       String s; serializeJson(d, s); ws.sendTXT(s);
       break;
     }
     case WStype_DISCONNECTED:
       if (ready_) dbg::log("[net] ws disconnected");
       ready_ = false;
-      if (holdOffUntil_ > millis()) ws.disconnect();     // stay off while the brain redeploys
-      break;
-    case WStype_ERROR:
-      break;
-    // the brain says it is redeploying: give the old container time to exit before reconnecting
-    case WStype_FRAGMENT_TEXT_START: case WStype_FRAGMENT_BIN_START: case WStype_FRAGMENT: case WStype_FRAGMENT_FIN:
+      if (state_ != PAIRING) state_ = wifiUp() ? CONNECTING_BRAIN : CONNECTING_WIFI;
+      if (holdOffUntil_ > millis()) ws.disconnect();
       break;
     case WStype_TEXT: {
       JsonDocument d;
       if (deserializeJson(d, payload, len)) break;
       const char* t = d["type"] | "";
-      if (!strcmp(t, "ready")) { ready_ = true; dbg::log("[net] brain ready"); sendStatus(); }
-      else if (!strcmp(t, "redeploy")) {
-        uint32_t wait = d["wait_s"] | 60;
-        holdOffUntil_ = millis() + wait * 1000;
-        dbg::log("[net] brain redeploying - reconnecting in %us", wait);
-        ws.disconnect();
+      if (!strcmp(t, "ready")) { ready_ = true; state_ = READY; pairingCode_[0] = 0; dbg::log("[net] brain ready"); sendStatus(); }
+      else if (!strcmp(t, "pairing")) {
+        strlcpy(pairingCode_, d["code"] | "", sizeof pairingCode_); state_ = PAIRING;
+        dbg::log("[net] waiting to be paired - code %s", pairingCode_);
+      }
+      else if (!strcmp(t, "paired")) {
+        strlcpy(prefs::token, d["token"] | "", sizeof prefs::token);
+        if (d["name"].is<const char*>() && strlen(d["name"] | "")) strlcpy(prefs::name, d["name"], sizeof prefs::name);
+        prefs::save(); pairingCode_[0] = 0;
+        dbg::log("[net] paired as '%s' - token stored", prefs::name);
+        ws.disconnect();                      // reconnect with the token
+      }
+      else if (!strcmp(t, "unpaired")) {
+        prefs::token[0] = 0; prefs::save(); dbg::log("[net] unpaired by owner"); ws.disconnect();
       }
       else if (!strcmp(t, "config")) {
         strlcpy(prefs::name, d["name"] | prefs::name, sizeof prefs::name);
         prefs::setFromHex(d["eye_color"] | "");
         prefs::autoSleepS = d["auto_sleep_s"] | prefs::autoSleepS;
-        if (d["mood_colors"].is<JsonObject>()) {            // {"love":"#FF6AD5","sad":"-",...}
+        if (d["mood_colors"].is<JsonObject>()) {
           String m;
           for (JsonPair kv : d["mood_colors"].as<JsonObject>()) {
             const char* v = kv.value().as<const char*>(); if (!v) continue;
@@ -75,63 +151,50 @@ static void onEvent(WStype_t type, uint8_t* payload, size_t len) {
         prefs::save(); prefs::apply(*face_, *tft_);
         dbg::log("[net] config: %s eyes #%06X sleep %us", prefs::name, prefs::eyeRGB, prefs::autoSleepS);
       }
-      else if (!strcmp(t, "pong")) { pongRtt_ = millis() - pingSent_; pingSent_ = 0; if (dbg::verbose) dbg::log("[net] pong %ums", pongRtt_); }
-      else if (!strcmp(t, "expression")) {
-        Expression e;
-        const char* name = d["name"] | "neutral";
-        float inten = d["intensity"] | 0.8f;
-        if (expressionFromName(name, e)) face_->setExpression(e, inten, 8000);
-        if (turn_.active && strcmp(name, "thinking")) {   // the real reaction, not the interim "thinking"
-          turn_.tExpr = since(); turn_.intensity = inten; strlcpy(turn_.expr, name, sizeof turn_.expr);
-        }
-        if (dbg::verbose || turn_.active) dbg::log("[net] expr %s %.1f @%ums", name, inten, since());
+      else if (!strcmp(t, "redeploy")) {
+        uint32_t wait = d["wait_s"] | 60; holdOffUntil_ = millis() + wait * 1000;
+        dbg::log("[net] brain redeploying - reconnecting in %us", wait); ws.disconnect();
       }
+      else if (!strcmp(t, "pong")) { pongRtt_ = millis() - pingSent_; pingSent_ = 0; }
       else if (!strcmp(t, "transcript")) {
+        // a turn starts the moment the brain tells us what was heard/typed (portal-initiated turns included)
+        if (!turn_.active) { turn_ = Turn(); turn_.t0 = millis(); turn_.active = true; }
         turn_.tTranscript = since(); strlcpy(turn_.transcript, d["text"] | "", sizeof turn_.transcript);
         dbg::log("[net] heard: %s", turn_.transcript);
       }
+      else if (!strcmp(t, "expression")) {
+        Expression e; const char* name = d["name"] | "neutral"; float inten = d["intensity"] | 0.8f;
+        if (expressionFromName(name, e)) face_->setExpression(e, inten, 8000);
+        if (turn_.active && strcmp(name, "thinking") && !turn_.tExpr) { turn_.tExpr = since(); turn_.intensity = inten; strlcpy(turn_.expr, name, sizeof turn_.expr); }
+        if (dbg::verbose) dbg::log("[net] expr %s %.1f @%ums", name, inten, since());
+      }
+      else if (!strcmp(t, "step")) { if (dbg::verbose) dbg::log("[net] step: %s", d["text"] | ""); }
+      else if (!strcmp(t, "tool")) { if (dbg::verbose) dbg::log("[net] tool %s", d["name"] | ""); }
       else if (!strcmp(t, "reply")) {
         turn_.tReply = since(); turn_.done = true; turn_.active = false;
         strlcpy(turn_.reply, d["text"] | "", sizeof turn_.reply);
         dbg::log("[net] pixel: %s", turn_.reply);
         dbg::log("[net] turn: expr %ums, audio %ums, done %ums", turn_.tExpr, turn_.tFirstAudio, turn_.tReply);
       }
-      else if (!strcmp(t, "speech_start")) { turn_.audioBytes = 0; }
-      else if (!strcmp(t, "speech_end")) {
-        turn_.tSpeechEnd = since();
-        dbg::log("[net] speech %.1fs audio, %u bytes", turn_.audioBytes / 32000.0f, turn_.audioBytes);
-        face_->setExpression(face_->expression(), 1.0f, 1500);
-      }
-      else if (!strcmp(t, "vad")) {
-        if (d["speaking"] | false) face_->setExpression(EXPR_LISTENING, 1.0f, 20000);
-        if (dbg::verbose) dbg::log("[net] vad %s", (d["speaking"] | false) ? "speaking" : "silent");
-      }
+      else if (!strcmp(t, "speech_start")) turn_.audioBytes = 0;
+      else if (!strcmp(t, "speech_end")) { turn_.tSpeechEnd = since(); face_->setExpression(face_->expression(), 1.0f, 1500); }
+      else if (!strcmp(t, "speech_cancel")) { turn_.active = false; }
+      else if (!strcmp(t, "vad")) { if (d["speaking"] | false) face_->setExpression(EXPR_LISTENING, 1.0f, 20000); }
       else if (!strcmp(t, "error")) dbg::log("[net] backend error: %s", d["message"] | "");
       break;
     }
     case WStype_BIN:
       if (turn_.audioBytes == 0) turn_.tFirstAudio = since();
       turn_.audioBytes += len;
-      if (dbg::verbose && (turn_.audioBytes / len) % 16 == 1) dbg::log("[net] audio frame %u bytes", len);
       break;
     default: break;
   }
 }
 
-void begin(Face& face, TFT_eSPI& tft) {
-  face_ = &face; tft_ = &tft;
-  WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);         // lower latency at the cost of some power; revisit on battery
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  dbg::log("[net] connecting to %s", WIFI_SSID);
-  ws.onEvent(onEvent);
-  ws.setReconnectInterval(3000);
-  ws.enableHeartbeat(15000, 3000, 2);
-#if BACKEND_TLS
-  ws.beginSSL(BACKEND_HOST, BACKEND_PORT, "/ws");
-#else
-  ws.begin(BACKEND_HOST, BACKEND_PORT, "/ws");
-#endif
+static void wsConnect() {
+  if (prefs::brainTls) ws.beginSSL(prefs::brainHost, prefs::brainPort, "/ws");
+  else ws.begin(prefs::brainHost, prefs::brainPort, "/ws");
+  wsBegun_ = true;
 }
 
 static void sendStatus() {
@@ -139,40 +202,45 @@ static void sendStatus() {
   JsonDocument d;
   d["type"] = "status"; d["rssi"] = WiFi.RSSI(); d["heap"] = ESP.getFreeHeap(); d["uptime_s"] = millis() / 1000;
   d["ip"] = WiFi.localIP().toString(); d["fw"] = __DATE__ " " __TIME__; d["expr"] = expressionName(face_->expression());
-  d["name"] = prefs::name;
+  d["name"] = prefs::name; d["reset_reason"] = (int)esp_reset_reason(); d["min_heap"] = ESP.getMinFreeHeap();
   String s; serializeJson(d, s); ws.sendTXT(s);
-  if (dbg::verbose) dbg::log("[net] status rssi %d heap %u", WiFi.RSSI(), ESP.getFreeHeap());
+}
+
+void begin(Face& face, TFT_eSPI& tft) {
+  face_ = &face; tft_ = &tft;
+  ws.onEvent(onEvent);
+  ws.setReconnectInterval(3000);
+  ws.enableHeartbeat(15000, 3000, 2);
+  if (!prefs::hasWifi()) { startProvisioning(); return; }
+  WiFi.mode(WIFI_STA); WiFi.setSleep(false);
+  WiFi.setHostname(prefs::deviceId());
+  WiFi.begin(prefs::wifiSsid, prefs::wifiPass);
+  state_ = CONNECTING_WIFI;
+  dbg::log("[net] %s connecting to %s, brain %s:%u", prefs::deviceId(), prefs::wifiSsid, prefs::brainHost, prefs::brainPort);
 }
 
 void loop() {
-  static bool wasUp = false; static uint32_t lastBlink = 0, lastStatus = 0;
-  bool up = WiFi.status() == WL_CONNECTED;
+  static bool wasUp = false; static uint32_t lastBlink = 0, wifiStart = millis();
+  if (state_ == PROVISIONING) {
+    dns_->processNextRequest(); http_->handleClient();
+    if (millis() - lastBlink > 250) { lastBlink = millis(); setLedBlue((millis() / 250) & 1); }   // fast blink = setup mode
+    return;
+  }
+  bool up = wifiUp();
   if (up != wasUp) {
     wasUp = up;
-    if (up) { dbg::log("[net] wifi up, ip %s rssi %d", WiFi.localIP().toString().c_str(), WiFi.RSSI()); setLedBlue(false); }
-    else dbg::log("[net] wifi down");
+    if (up) { dbg::log("[net] wifi up, ip %s rssi %d", WiFi.localIP().toString().c_str(), WiFi.RSSI()); setLedBlue(false); state_ = CONNECTING_BRAIN; if (!wsBegun_) wsConnect(); }
+    else { dbg::log("[net] wifi down"); state_ = CONNECTING_WIFI; wifiStart = millis(); }
   }
-  if (!up && millis() - lastBlink > 400) { lastBlink = millis(); setLedBlue((millis() / 400) & 1); }
-  static bool held = false;
-  if (holdOffUntil_ && millis() > holdOffUntil_) {          // hold-off over: resume reconnecting
-    holdOffUntil_ = 0; held = false;
-#if BACKEND_TLS
-    ws.beginSSL(BACKEND_HOST, BACKEND_PORT, "/ws");
-#else
-    ws.begin(BACKEND_HOST, BACKEND_PORT, "/ws");
-#endif
-    dbg::log("[net] reconnecting to brain");
-  } else if (holdOffUntil_ && !held) { held = true; }
-  if (up && !holdOffUntil_) ws.loop();
-  if (ready_ && millis() - lastStatus > 30000) { lastStatus = millis(); sendStatus(); }
+  if (!up) {
+    if (millis() - lastBlink > 600) { lastBlink = millis(); setLedBlue((millis() / 600) & 1); }
+    if (millis() - wifiStart > 90000) { dbg::log("[net] wifi failed for 90 s - opening setup"); startProvisioning(); }   // wrong password etc.
+    return;
+  }
+  if (holdOffUntil_ && millis() > holdOffUntil_) { holdOffUntil_ = 0; wsConnect(); dbg::log("[net] reconnecting to brain"); }
+  if (!holdOffUntil_) ws.loop();
+  if (ready_ && millis() - lastStatus_ > 30000) { lastStatus_ = millis(); sendStatus(); }
 }
-
-bool wifiUp() { return WiFi.status() == WL_CONNECTED; }
-bool connected() { return ready_; }
-const char* backendHost() { return BACKEND_HOST; }
-uint16_t backendPort() { return BACKEND_PORT; }
-const char* token() { return BACKEND_TOKEN; }
-bool tls() { return BACKEND_TLS; }
 
 static void startTurn() { turn_ = Turn(); turn_.t0 = millis(); turn_.active = true; }
 
@@ -185,29 +253,7 @@ void sendText(const char* text) {
 }
 void sendAudio(const uint8_t* pcm16, size_t len) { if (ready_) ws.sendBIN(pcm16, len); }
 void sendEnd() { if (ready_) { startTurn(); ws.sendTXT("{\"type\":\"end\"}"); } }
-
-bool sendPing() {
-  if (!ready_) return false;
-  pongRtt_ = 0; pingSent_ = millis();
-  ws.sendTXT("{\"type\":\"ping\"}");
-  return true;
-}
+bool sendPing() { if (!ready_) return false; pongRtt_ = 0; pingSent_ = millis(); ws.sendTXT("{\"type\":\"ping\"}"); return true; }
 uint32_t pongRtt() { return pongRtt_; }
-
-#else   // ---- no secrets.h: networking compiled out ----
-void begin(Face&, TFT_eSPI&) { dbg::log("[net] include/secrets.h missing - networking disabled"); }
-void loop() {}
-bool wifiUp() { return false; }
-bool connected() { return false; }
-const char* backendHost() { return "(none)"; }
-uint16_t backendPort() { return 0; }
-const char* token() { return ""; }
-bool tls() { return false; }
-void sendText(const char*) { dbg::log("[net] networking disabled"); }
-void sendAudio(const uint8_t*, size_t) {}
-void sendEnd() {}
-bool sendPing() { return false; }
-uint32_t pongRtt() { return 0; }
-#endif
 
 }  // namespace net

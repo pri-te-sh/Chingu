@@ -1,7 +1,7 @@
 # Pixel Platform — Plan & Task Tracker
 
 _Living document. Claude works top-down through the unchecked tasks and updates this file as things land.
-Last updated: 2026-09-09 (P0 + P1 done locally; Modal frozen at its last deploy — `modal_app.py` is no longer deployable from this tree and is retired at P3)._
+Last updated: 2026-09-09 (P0 + P1 + most of P2 done locally; Modal frozen at its last deploy — `modal_app.py` is no longer deployable from this tree and is retired at P3)._
 
 ## Decisions (settled — do not re-open without a reason)
 
@@ -68,14 +68,16 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 - [x] Google provider (Authlib) wired but disabled until cutover
 
 ### P2 — Multi-Pixel & pairing
-- [ ] Firmware: start the turn timer on `transcript` so portal-initiated turns report real latencies (currently bogus on inbox turns)
-- [ ] Pairing flow: device shows code → portal "Add a Pixel" → claim → per-device token issued and pushed; revoke from portal
-- [ ] `hello` carries `device_type`, `fw`, `capabilities` (mic, speaker, camera, imu, battery); brain adapts features
-- [ ] Portal Pixel switcher; DEVICE page per Pixel; DASHBOARD shows all Pixels of the household
-- [ ] Persona per Pixel; memory per owner (D5) — prompt builder reads both
-- [ ] Firmware (Pixel-Lite): pairing message + token storage in NVS; capabilities in hello; QR points at `/pair?code=…`
-- [ ] Firmware: SoftAP captive-portal provisioning (Wi-Fi + brain URL), "setup" face, long-press-to-reset; remove `secrets.h` dependency
-- [ ] Portal: "Add a Pixel" wizard (power on → join `Pixel-XXXX` → pick Wi-Fi → enter code) + ESP Web Tools flasher page
+- [x] Firmware: start the turn timer on `transcript` so portal-initiated turns report real latencies (currently bogus on inbox turns)
+- [x] Pairing flow: device shows code → portal "Add a Pixel" → claim → per-device token issued and pushed; revoke from portal
+- [x] `hello` carries `device_type`, `fw`, `capabilities` (mic, speaker, camera, imu, battery); brain adapts features
+- [x] Portal Pixel switcher; DEVICE page per Pixel; DASHBOARD shows all Pixels of the household
+- [x] Persona per Pixel; memory per owner (D5) — prompt builder reads both
+- [x] Firmware (Pixel-Lite): pairing message + token storage in NVS; capabilities in hello; device id from MAC (`lite-xxxxxx`); Portal screen shows pairing code
+- [x] Firmware: SoftAP captive-portal provisioning (Wi-Fi + brain URL), "setup" face, long-press-to-reset; remove `secrets.h` dependency
+- [x] Portal: "Add a Pixel" (code + name) on PROFILE — full wizard copy + ESP Web Tools flasher page still to do
+- [ ] Portal: setup wizard copy + ESP Web Tools flasher page
+- [ ] Provisioning: verify the SoftAP captive portal from a phone (Android + iPhone)
 
 ### P2b — OTA updates
 - [ ] Pixel-Lite partition table → `min_spiffs.csv`; verify current image fits with headroom
