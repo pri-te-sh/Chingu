@@ -201,8 +201,9 @@ async def respond(ws: WebSocket | None, device: str, user_text: str, want_audio=
         if delta == "\u0000FLUSH":
             # the model's own pre-tool sentence: speak it now as a step, then start the final reply clean
             if pending.strip():
-                steps.append(pending.strip())
-                await speak(pending)
+                await speak(pending)                  # whatever sentence fragment hasn't been voiced yet
+            if spoken_all.strip():
+                steps.append(re.sub(r"\s+", " ", spoken_all).strip())   # everything it said in this pass
             pending, tagged, spoken_all = "", "", ""
             tag_done = False; had_expr = True
             continue
