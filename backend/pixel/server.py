@@ -244,7 +244,7 @@ _fails: dict[str, list[float]] = {}     # ip -> timestamps of failed auths (brut
 def _throttled(ip: str) -> bool:
     now = time.time()
     _fails[ip] = [t for t in _fails.get(ip, []) if now - t < 600]
-    return len(_fails[ip]) >= 8            # 8 bad tries per 10 min, then locked out for the window
+    return len(_fails[ip]) >= 15           # 15 bad tries per 10 min, then locked out for the window
 
 
 def auth(request: Request):
