@@ -78,7 +78,7 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 - [x] Firmware: SoftAP captive-portal provisioning (Wi-Fi + brain URL), "setup" face, long-press-to-reset; remove `secrets.h` dependency
 - [x] Portal: "Add a Pixel" (code + name) on PROFILE — full wizard copy + ESP Web Tools flasher page still to do
 - [ ] Portal: setup wizard copy + ESP Web Tools flasher page
-- [ ] Provisioning: verify the SoftAP captive portal from a phone (Android + iPhone) — board Setup screen added (Change Wi-Fi / Unpair / Factory reset)
+- [x] Provisioning: captive portal verified on iPhone 2026-09-09 (no Android device available; the page also works by visiting 192.168.4.1 directly, which the device screen says)
 
 ### P2b — OTA updates
 - [x] Pixel-Lite partition table → `min_spiffs.csv` (two 1.9 MB app slots; image 1.13 MB = 57%); flashed once over USB 2026-09-09
