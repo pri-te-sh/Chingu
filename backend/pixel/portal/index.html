@@ -111,6 +111,19 @@ input[type=checkbox]{width:18px;height:18px;appearance:none;border:3px solid var
  <div class="row" style="margin-top:12px"><input id="chat-in" placeholder="say something…" onkeydown="if(event.key==='Enter')sendChat()"><button class="btn" onclick="sendChat()">SEND</button><button class="btn cyan" id="todev" onclick="sayDevice()">TO DEVICE</button></div></div>
 </section>
 
+<!-- SIMULATOR -->
+<section id="sim"><div class="grid g21">
+ <div class="px card" style="text-align:center"><h3 style="text-align:left">VIRTUAL PIXEL · FULL PIPELINE</h3>
+  <canvas id="simface" width="44" height="30" style="width:440px;height:300px;max-width:100%;background:#000;border:4px solid var(--edge);box-shadow:4px 4px 0 var(--shadow)"></canvas>
+  <div class="row" style="justify-content:center;margin-top:14px"><span class="tag expr" id="sim-expr">neutral</span><span class="tag" id="sim-state">disconnected</span></div>
+  <div class="bar" id="sim-level" style="width:260px;margin:14px auto 0"></div>
+  <div class="row" style="justify-content:center;margin-top:16px"><button class="btn" id="sim-ptt" onmousedown="simHold(true)" onmouseup="simHold(false)" onmouseleave="simHold(false)" ontouchstart="event.preventDefault();simHold(true)" ontouchend="simHold(false)">HOLD TO TALK</button><button class="btn cyan" id="sim-live" onclick="simLive()">ALWAYS LISTENING</button><button class="btn ghost" onclick="simStop()">STOP</button></div>
+  <div class="kbd" style="margin-top:10px">Same WebSocket protocol as the board · 16 kHz PCM both ways · this is what the mic and speaker will do</div></div>
+ <div class="grid" style="gap:22px;align-content:start">
+  <div class="px card"><h3>LAST TURN</h3><div id="sim-heard" class="muted">say something…</div><div id="sim-reply" style="margin-top:8px"></div><div class="row" style="margin-top:10px;font-size:18px"><span class="amber" id="sim-t1"></span><span class="cyan" id="sim-t2"></span><span class="green" id="sim-t3"></span></div></div>
+  <div class="px card"><h3>EVENTS</h3><pre id="sim-log" class="term" style="max-height:300px;font-size:17px"></pre></div>
+  <div class="px card"><h3>TYPE INSTEAD</h3><div class="row"><input id="sim-text" placeholder="…" onkeydown="if(event.key==='Enter')simText()"><button class="btn sm" onclick="simText()">SEND</button></div></div></div></div></section>
+
 <!-- LOG -->
 <section id="log"><div class="grid" style="grid-template-columns:200px 1fr"><div><div class="px card"><h3>DAYS</h3><div class="days" id="days"></div></div></div>
 <div class="px card"><div class="row"><h3 id="log-title" style="margin:0">CONVERSATION LOG</h3><input id="q" placeholder="filter…" style="width:220px;margin-left:auto" oninput="renderTurns()"></div><div id="turns"></div></div></div></section>
@@ -157,10 +170,11 @@ function toggleTheme(){setTheme(document.documentElement.dataset.theme==='light'
 setTheme(localStorage.getItem('pixel_theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'));
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];const _u=new URL(location.href);if(_u.searchParams.get('token')){localStorage.setItem('pixel_token',_u.searchParams.get('token'));_u.searchParams.delete('token');history.replaceState(null,'',_u.pathname+_u.hash)}
 let TOK=localStorage.getItem('pixel_token')||'';let CFG={},DEF={},TURNS=[],FACTS=[],DAY=null;
-const pages={dashboard:'DASHBOARD',log:'LOG',memory:'MEMORY',brain:'BRAIN',device:'DEVICE'};
+const pages={dashboard:'DASHBOARD',sim:'SIMULATOR',log:'LOG',memory:'MEMORY',brain:'BRAIN',device:'DEVICE'};
 $('#nav').innerHTML=Object.entries(pages).map(([p,l])=>`<button data-p="${p}" onclick="go('${p}')">${l}</button>`).join('');
-function go(p){Object.keys(pages).forEach(x=>{$('#'+x).classList.toggle('on',x===p);document.querySelector(`[data-p=${x}]`).classList.toggle('on',x===p)});history.replaceState(null,'','#'+p);({dashboard:loadStatus,log:loadTurns,memory:loadMemory,brain:loadConfig,device:()=>loadConfig().then(loadStatus)})[p]().catch(()=>{})}
-async function api(path,opt={}){if(!TOK){endSplash(true);$('#login').style.display='block';throw new Error('auth')}const r=await fetch('/api'+path,{...opt,headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOK}});if(r.status===401||r.status===429){const had=TOK;TOK='';localStorage.removeItem('pixel_token');endSplash(true);$('#login').style.display='block';$('#login-msg').textContent=r.status===429?'Too many wrong attempts - wait a few minutes and try again.':(had?'That code was not accepted.':'');throw new Error('auth')}if(!r.ok)throw new Error(await r.text());return r.json()}
+function go(p){Object.keys(pages).forEach(x=>{$('#'+x).classList.toggle('on',x===p);document.querySelector(`[data-p=${x}]`).classList.toggle('on',x===p)});history.replaceState(null,'','#'+p);({dashboard:loadStatus,sim:simEnter,log:loadTurns,memory:loadMemory,brain:loadConfig,device:()=>loadConfig().then(loadStatus)})[p]().catch(()=>{});if(p!=='sim')simLeave()}
+let AUTH_REQUIRED=true;
+async function api(path,opt={}){if(!TOK&&AUTH_REQUIRED){endSplash(true);$('#login').style.display='block';throw new Error('auth')}const r=await fetch('/api'+path,{...opt,headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOK}});if(r.status===401||r.status===429){const had=TOK;TOK='';localStorage.removeItem('pixel_token');endSplash(true);$('#login').style.display='block';$('#login-msg').textContent=r.status===429?'Too many wrong attempts - wait a few minutes and try again.':(had?'That code was not accepted.':'');throw new Error('auth')}if(!r.ok)throw new Error(await r.text());return r.json()}
 function saveTok(){TOK=$('#tok').value.trim().toUpperCase();if(!TOK)return;localStorage.setItem('pixel_token',TOK);$('#login').style.display='none';loadStatus.once=0;start()}
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),1600)}
 const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -225,6 +239,41 @@ async function resetAll(){if(!confirm('Reset name, owner, personality, tone, mod
 async function saveConfig(){const patch={name:$('#c-name').value,owner:$('#c-owner').value,persona:$('#c-persona').value,tone:{cheeky:+$('#c-cheeky').value,chatty:+$('#c-chatty').value},timezone:$('#c-tz').value,history_turns:+$('#c-hist').value,auto_sleep_s:+$('#c-sleep').value,eye_color:$('#c-eye').value.toUpperCase(),chat_model:$('#c-chat').value.trim(),memory_model:$('#c-mem').value.trim(),chat_think:$('#c-chat-think').checked,memory_think:$('#c-mem-think').checked,memory_enabled:$('#c-mem-on').checked};CFG=await api('/config',{method:'PUT',body:JSON.stringify(patch)});$('#title').textContent=CFG.name.toUpperCase();dirty=false;$$('.dirty').forEach(e=>e.classList.remove('on'));toast('SAVED · PUSHED TO DEVICE');api('/prompt').then(p=>$('#prompt2').textContent=p.system_prompt)}
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue=''}});
 if('scrollRestoration' in history)history.scrollRestoration='manual';
+/* ---------- simulator: browser = device ---------- */
+const SIM={ws:null,ac:null,mic:null,proc:null,src:null,live:false,hold:false,playT:0,expr:'neutral',mouth:0,blinkT:0,gaze:{x:0,y:0},level:0,t0:0,speaking:false,timer:null};
+const EXPR={neutral:{eh:9,g:[0,0],m:0},happy:{eh:7,g:[0,0],m:1},excited:{eh:10,g:[0,-1],m:2},love:{eh:8,g:[0,0],m:1},curious:{eh:10,g:[2,-1],m:3},thinking:{eh:7,g:[2,-2],m:0},listening:{eh:11,g:[0,0],m:0},surprised:{eh:12,g:[0,0],m:3},suspicious:{eh:5,g:[-2,0],m:-1},annoyed:{eh:5,g:[0,0],m:-1},sad:{eh:7,g:[0,1],m:-1},sleepy:{eh:3,g:[0,1],m:0},asleep:{eh:1,g:[0,0],m:0}};
+function simFace(){const cv=$('#simface');if(!cv)return;const x=cv.getContext('2d'),W=44,H=30,col=CFG.eye_color||'#EBE128',e=EXPR[SIM.expr]||EXPR.neutral;x.fillStyle='#000';x.fillRect(0,0,W,H);x.fillStyle=col;
+ SIM.blinkT++;let b=1;if(SIM.blinkT>140){if(SIM.blinkT>146)SIM.blinkT=0;else b=Math.abs(143-SIM.blinkT)/3}
+ const eh=Math.max(1,Math.round(e.eh*b)),ey=Math.round(12-eh/2)+e.g[1];[14,30].forEach(cx=>{for(let r=0;r<eh;r++){const t=(r===0||r===eh-1)&&eh>2;x.fillRect(cx-4+(t?1:0)+e.g[0],ey+r,8-(t?2:0),1)}});
+ const my=23,m=SIM.mouth>0?3:e.m;if(m===0)x.fillRect(18,my,8,1);else if(m===1){x.fillRect(18,my,8,1);x.fillRect(17,my-1,1,1);x.fillRect(26,my-1,1,1)}else if(m===-1){x.fillRect(18,my,8,1);x.fillRect(17,my+1,1,1);x.fillRect(26,my+1,1,1)}else if(m===2){x.fillRect(18,my-1,8,1);x.fillRect(17,my-2,1,1);x.fillRect(26,my-2,1,1);x.fillRect(19,my,6,2)}else{const h=2+Math.round(SIM.mouth*2);x.fillRect(19,my-1,6,h);x.fillStyle='#000';x.fillRect(20,my,4,Math.max(1,h-2))}
+ if(SIM.mouth>0)SIM.mouth=Math.max(0,SIM.mouth-0.25+ (Math.random()<0.5?0.3:0));}
+function simLog(m){const el=$('#sim-log');const t=SIM.t0?((performance.now()-SIM.t0)/1000).toFixed(2)+'s ':'';el.textContent=(el.textContent+`\n${t}${m}`).split('\n').slice(-40).join('\n');el.scrollTop=1e9}
+function simState(t){$('#sim-state').textContent=t}
+async function simEnter(){if(!SIM.timer)SIM.timer=setInterval(simFace,50);if(!SIM.ws)simConnect()}
+function simLeave(){simStop();if(SIM.ws){SIM.ws.close();SIM.ws=null}if(SIM.timer){clearInterval(SIM.timer);SIM.timer=null}}
+function simConnect(){const url=(location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws';const ws=new WebSocket(url);ws.binaryType='arraybuffer';SIM.ws=ws;simState('connecting…');
+ ws.onopen=()=>{ws.send(JSON.stringify({type:'hello',token:TOK,device:'sim-browser'}))};
+ ws.onclose=()=>{simState('disconnected');SIM.ws=null};ws.onerror=()=>simLog('websocket error');
+ ws.onmessage=ev=>{if(ev.data instanceof ArrayBuffer){simPlay(ev.data);return}const d=JSON.parse(ev.data);
+  if(d.type==='ready'){simState('ready');simLog('brain ready')}
+  else if(d.type==='vad'){SIM.speaking=d.speaking;simState(d.speaking?'hearing you…':'listening');if(d.speaking){SIM.t0=0;simLog('speech start')}else{SIM.t0=performance.now();simLog('speech end → transcribing')}}
+  else if(d.type==='transcript'){$('#sim-heard').innerHTML='<span class="muted">you:</span> '+esc(d.text);$('#sim-reply').textContent='';$('#sim-t1').textContent=$('#sim-t2').textContent=$('#sim-t3').textContent='';simLog('heard: '+d.text)}
+  else if(d.type==='expression'){SIM.expr=d.name;$('#sim-expr').textContent=d.name+' '+d.intensity;if(d.name!=='thinking'&&SIM.t0)$('#sim-t1').textContent='face '+Math.round(performance.now()-SIM.t0)+'ms';simLog('expression '+d.name+' '+d.intensity)}
+  else if(d.type==='speech_start'){SIM.playT=0;if(SIM.t0)$('#sim-t2').textContent='voice '+Math.round(performance.now()-SIM.t0)+'ms';simLog('voice starts')}
+  else if(d.type==='speech_end'){simLog('voice done')}
+  else if(d.type==='reply'){$('#sim-reply').innerHTML='<span class="amber">'+esc(CFG.name||'Pixel')+':</span> '+esc(d.text);if(SIM.t0)$('#sim-t3').textContent='done '+Math.round(performance.now()-SIM.t0)+'ms';simLog('reply: '+d.text);simState(SIM.live?'listening':'ready')}
+  else if(d.type==='error'){simLog('ERROR '+d.message)}}}
+function simAudio(){if(!SIM.ac){SIM.ac=new (window.AudioContext||window.webkitAudioContext)({sampleRate:16000})}if(SIM.ac.state==='suspended')SIM.ac.resume();return SIM.ac}
+function simPlay(buf){const ac=simAudio();const i16=new Int16Array(buf);const f=new Float32Array(i16.length);for(let i=0;i<i16.length;i++)f[i]=i16[i]/32768;const ab=ac.createBuffer(1,f.length,16000);ab.copyToChannel(f,0);const src=ac.createBufferSource();src.buffer=ab;src.connect(ac.destination);const t=Math.max(ac.currentTime+0.05,SIM.playT);src.start(t);SIM.playT=t+ab.duration;SIM.mouth=1;
+ // keep the mouth moving while audio is scheduled
+ const end=SIM.playT;const tick=setInterval(()=>{if(ac.currentTime<end)SIM.mouth=Math.max(SIM.mouth,0.6);else clearInterval(tick)},80)}
+async function simMic(){if(SIM.mic)return true;try{const ac=simAudio();const stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});SIM.mic=stream;SIM.src=ac.createMediaStreamSource(stream);const proc=ac.createScriptProcessor(1024,1,1);SIM.proc=proc;const ratio=ac.sampleRate/16000;
+ proc.onaudioprocess=e=>{if(!(SIM.live||SIM.hold)||!SIM.ws||SIM.ws.readyState!==1)return;const inp=e.inputBuffer.getChannelData(0);const n=Math.floor(inp.length/ratio);const out=new Int16Array(n);let peak=0;for(let i=0;i<n;i++){const v=inp[Math.floor(i*ratio)];peak=Math.max(peak,Math.abs(v));out[i]=Math.max(-32768,Math.min(32767,Math.round(v*32767)))}SIM.level=peak;SIM.ws.send(out.buffer)};
+ SIM.src.connect(proc);proc.connect(ac.destination);setInterval(()=>{const k=Math.round(Math.min(1,SIM.level*3)*20);$('#sim-level').innerHTML=Array.from({length:20},(_,i)=>`<i class="${i<k?(SIM.speaking?'a':'c'):''}"></i>`).join('');SIM.level*=0.7},60);return true}catch(e){simLog('microphone blocked: '+e.message);return false}}
+async function simHold(down){if(down){if(!await simMic())return;if(!SIM.ws)simConnect();SIM.hold=true;$('#sim-ptt').classList.add('cyan');simState('hearing you… (release to send)')}else if(SIM.hold){SIM.hold=false;$('#sim-ptt').classList.remove('cyan');if(SIM.ws&&SIM.ws.readyState===1)SIM.ws.send(JSON.stringify({type:'end'}));SIM.t0=performance.now();simState('transcribing…')}}
+async function simLive(){if(SIM.live){SIM.live=false;$('#sim-live').textContent='ALWAYS LISTENING';simState('ready');return}if(!await simMic())return;if(!SIM.ws)simConnect();SIM.live=true;$('#sim-live').textContent='■ LISTENING (click to stop)';simState('listening');simLog('always-listening on: speak, pause, Pixel answers')}
+function simStop(){SIM.live=false;SIM.hold=false;const b=$('#sim-live');if(b)b.textContent='ALWAYS LISTENING';if(SIM.mic){SIM.mic.getTracks().forEach(t=>t.stop());SIM.mic=null;if(SIM.proc){SIM.proc.disconnect();SIM.proc=null}}simState(SIM.ws?'ready':'disconnected')}
+function simText(){const t=$('#sim-text').value.trim();if(!t||!SIM.ws)return;$('#sim-text').value='';SIM.t0=performance.now();SIM.ws.send(JSON.stringify({type:'text',text:t}))}
 /* ---------- splash: Pixel wakes up ---------- */
 const SPL={t0:performance.now(),ready:false,done:false,prog:0,steps:['booting…','waking the face…','connecting to the brain…','remembering…','ready.']};
 $('#sbar').innerHTML=Array.from({length:24},()=>'<i></i>').join('');
@@ -235,6 +284,6 @@ SPL.timer=setInterval(splashLoop,40);function splashLoop(){if(SPL.done){clearInt
  const target=SPL.ready?1:Math.min(.8,el/2.6);SPL.prog+= (target-SPL.prog)*.15;const k=Math.round(SPL.prog*24);$$('#sbar i').forEach((x,i)=>x.classList.toggle('f',i<k));$('#ssub').textContent=SPL.steps[Math.min(4,Math.floor(SPL.prog*4.99))];
  if((SPL.ready&&el>2.4&&SPL.prog>.98)||el>6)endSplash()}
 function endSplash(skip){if(SPL.done)return;SPL.done=true;const sp=$('#splash');sp.classList.add('out');setTimeout(()=>sp.remove(),skip?200:520)}
-function start(){api('/config').then(c=>{CFG=c;$('#c-eye').value=c.eye_color;SPL.ready=true}).catch(()=>{SPL.ready=true});window.scrollTo(0,0);go(location.hash.slice(1)||'dashboard');setInterval(()=>{if($('#dashboard').classList.contains('on')||$('#device').classList.contains('on'))loadStatus().catch(()=>{})},5000)}
+async function start(){try{const h=await (await fetch('/health')).json();AUTH_REQUIRED=!!h.auth_required}catch(e){}api('/config').then(c=>{CFG=c;$('#c-eye').value=c.eye_color;SPL.ready=true}).catch(()=>{SPL.ready=true});window.scrollTo(0,0);go(location.hash.slice(1)||'dashboard');setInterval(()=>{if($('#dashboard').classList.contains('on')||$('#device').classList.contains('on'))loadStatus().catch(()=>{})},5000)}
 start();
 </script></body></html>

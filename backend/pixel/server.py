@@ -87,7 +87,7 @@ async def health():
     cfg = settings.get()
     return {"ok": True, "name": cfg["name"], "chat_model": cfg["chat_model"], "memory_model": cfg["memory_model"],
             "whisper": C.WHISPER_MODEL, "voice": C.PIPER_VOICE, "devices": list(presence_all()),
-            "store": "modal-dict" if store.USE_DICT else "files"}
+            "store": "modal-dict" if store.USE_DICT else "files", "auth_required": bool(C.PIXEL_TOKEN)}
 
 
 @app.on_event("startup")
@@ -190,8 +190,10 @@ async def ws_endpoint(ws: WebSocket):
     device = re.sub(r"[^a-z0-9_-]", "", (hello.get("device") or "pixel").lower()) or "pixel"
     sess = Session(ws, device)
     sessions[device] = sess
-    presence_set(device, connected_at=time.time(), status={}, busy=False)
-    device_event(device, "connected", ip=ws.client.host if ws.client else None)
+    is_sim = device.startswith("sim")            # browser simulator: full pipeline, but not shown as the physical device
+    if not is_sim:
+        presence_set(device, connected_at=time.time(), status={}, busy=False)
+        device_event(device, "connected", ip=ws.client.host if ws.client else None)
     vad = EnergyVAD()
     loop = asyncio.get_running_loop()
     await send_json(ws, type="ready")
@@ -203,7 +205,7 @@ async def ws_endpoint(ws: WebSocket):
         try:
             await respond(ws, device, text)
             sess.last_turn = time.time()
-            presence_set(device, last_turn=sess.last_turn)
+            if not is_sim: presence_set(device, last_turn=sess.last_turn)
         finally:
             sess.busy = False
 
@@ -255,7 +257,7 @@ async def ws_endpoint(ws: WebSocket):
                 elif t == "status":
                     sess.status = {k: data.get(k) for k in ("rssi", "heap", "uptime_s", "ip", "fw", "expr", "name")}
                     sess.status_at = time.time()
-                    presence_set(device, status=sess.status, connected_at=sess.connected_at, busy=sess.busy)
+                    if not is_sim: presence_set(device, status=sess.status, connected_at=sess.connected_at, busy=sess.busy)
                     if not getattr(sess, "first_status", False):
                         sess.first_status = True
                         device_event(device, "status", rssi=data.get("rssi"), ip=data.get("ip"), fw=data.get("fw"))
@@ -275,10 +277,11 @@ async def ws_endpoint(ws: WebSocket):
         except Exception: pass
     finally:
         inj.cancel()
-        device_event(device, "disconnected", duration_s=int(time.time() - sess.connected_at), rssi=sess.status.get("rssi"))
+        if not is_sim:
+            device_event(device, "disconnected", duration_s=int(time.time() - sess.connected_at), rssi=sess.status.get("rssi"))
         if sessions.get(device) is sess:
             del sessions[device]
-            presence_clear(device)
+            if not is_sim: presence_clear(device)
 
 
 # =============================================================== REST API (portal)
