@@ -16,13 +16,15 @@ import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, RedirectResponse
 
-from . import ambient, bus, config as C, inference, llm, memory, obs, repo, settings, tools
+from . import ambient, auth, bus, config as C, inference, llm, memory, obs, repo, settings, tools
+from starlette.middleware.sessions import SessionMiddleware
 from .vad import EnergyVAD
 
 obs.setup_logging()
 log = structlog.get_logger("pixel.server")
 
 app = FastAPI(title="pixel-brain")
+app.add_middleware(SessionMiddleware, secret_key=auth.SESSION_SECRET, session_cookie="pixel_oauth", same_site="lax", https_only=False)
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 FLUSH = "\x00FLUSH"     # in-band marker: "the model's pre-tool sentence is complete, start the final reply clean"
 PORTAL_DIR = Path(__file__).resolve().parent / "portal"
@@ -56,7 +58,7 @@ async def health():
     h = await repo.default_household()
     present = await bus.presence_all()
     return {"ok": True, "store": "postgres", "inference": "worker" if inference.URL else "in-process",
-            "devices": list(present), "household": h["name"], "auth_required": bool(C.PIXEL_TOKEN)}
+            "devices": list(present), "household": h["name"], "auth_required": True, "providers": auth.providers()}
 
 
 @app.get("/metrics")
@@ -343,15 +345,11 @@ async def ws_endpoint(ws: WebSocket):
 
 
 # =============================================================== REST API (portal)
-def auth(request: Request):
-    if not C.PIXEL_TOKEN: return
-    tok = request.headers.get("authorization", "").removeprefix("Bearer ").strip() or request.cookies.get("pixel_token")
-    if tok != C.PIXEL_TOKEN: raise HTTPException(401, "bad token")
-
-
-async def scope(pixel: int | None = None) -> tuple[dict, dict, dict]:
-    """P0 shim: the default household; the requested pixel or the household's first physical one (then any)."""
-    h = await repo.default_household()
+async def scope(request: Request, pixel: int | None = None) -> tuple[dict, dict, dict]:
+    """The signed-in user's household; the requested pixel or the household's first physical one (then any)."""
+    user = await auth.require_user(request)
+    hs = await auth.households_for(user["id"])
+    h = (await repo.household(hs[0]["id"])) if hs else await repo.default_household()
     px = await repo.pixels_in_household(h["id"])
     p = next((x for x in px if x["id"] == pixel), None) if pixel else None
     if not p:
@@ -364,13 +362,84 @@ async def scope(pixel: int | None = None) -> tuple[dict, dict, dict]:
 @app.get("/")
 async def root(): return RedirectResponse("/portal")
 
+
+@app.get("/api/me")
+async def api_me(request: Request):
+    u = await auth.current_user(request)
+    if not u: return {"user": None, "providers": auth.providers()}
+    hs = await auth.households_for(u["id"])
+    mem = await auth.members(hs[0]["id"]) if hs else []
+    return {"user": {k: u[k] for k in ("id", "email", "name", "avatar", "provider")}, "households": hs, "members": mem, "providers": auth.providers()}
+
+
+@app.put("/api/me")
+async def api_me_put(request: Request, body: dict):
+    u = await auth.require_user(request)
+    if body.get("name"): await repo.execute(sa_update_user(u["id"], body["name"]))
+    return await api_me(request)
+
+
+def sa_update_user(uid: int, name: str):
+    import sqlalchemy as sa
+    from . import models as m
+    return sa.update(m.users).where(m.users.c.id == uid).values(name=name.strip()[:80])
+
+
+@app.put("/api/household")
+async def api_household_put(request: Request, body: dict):
+    u = await auth.require_user(request)
+    hs = await auth.households_for(u["id"])
+    if not hs: raise HTTPException(404)
+    if body.get("name"): await repo.update_household(hs[0]["id"], name=body["name"].strip()[:80])
+    return await repo.household(hs[0]["id"])
+
+
+@app.post("/auth/dev")
+async def auth_dev(request: Request, body: dict):
+    if not auth.dev_login(body.get("email", ""), body.get("password", "")):
+        raise HTTPException(401, "invalid credentials")
+    u = await auth.upsert_user("dev", body["email"].strip().lower(), body["email"].strip().lower(), body.get("name") or body["email"].split("@")[0].title())
+    tok = await auth.create_session(u["id"])
+    resp = Response(content=json.dumps({"ok": True}), media_type="application/json")
+    auth.set_cookie(resp, tok, request)
+    log.info("auth.login", provider="dev", user=u["id"])
+    return resp
+
+
+@app.get("/auth/google")
+async def auth_google(request: Request):
+    if not auth.providers()["google"]: raise HTTPException(404, "google sign-in not configured")
+    g = auth.google_client()
+    return await g.authorize_redirect(request, str(request.url_for("auth_callback")))
+
+
+@app.get("/auth/callback")
+async def auth_callback(request: Request):
+    g = auth.google_client()
+    token = await g.authorize_access_token(request)
+    info = token.get("userinfo") or await g.userinfo(token=token)
+    u = await auth.upsert_user("google", info["sub"], info.get("email"), info.get("name"), info.get("picture"))
+    tok = await auth.create_session(u["id"])
+    resp = RedirectResponse("/portal")
+    auth.set_cookie(resp, tok, request)
+    log.info("auth.login", provider="google", user=u["id"])
+    return resp
+
+
+@app.post("/auth/logout")
+async def auth_logout(request: Request):
+    await auth.destroy_session(request)
+    resp = Response(content=json.dumps({"ok": True}), media_type="application/json")
+    resp.delete_cookie(auth.COOKIE, path="/")
+    return resp
+
 @app.get("/portal")
 async def portal(): return FileResponse(PORTAL_DIR / "index.html", headers={"Cache-Control": "no-store"})
 
 
-@app.get("/api/status", dependencies=[Depends(auth)])
-async def api_status(pixel: int | None = None):
-    h, p, cfg = await scope(pixel)
+@app.get("/api/status", )
+async def api_status(request: Request, pixel: int | None = None):
+    h, p, cfg = await scope(request, pixel)
     tz = cfg["timezone"]; today = memory.today_key(tz)
     px = await repo.pixels_in_household(h["id"])
     present = await bus.presence_all([x["device_id"] for x in px if x["device_type"] != "sim"])
@@ -389,107 +458,120 @@ async def api_status(pixel: int | None = None):
             "summary_today": (await repo.summaries(h["id"])).get(today), "chat_model": cfg["chat_model"], "memory_model": cfg["memory_model"]}
 
 
-@app.get("/api/config", dependencies=[Depends(auth)])
-async def api_config(pixel: int | None = None):
-    _, _, cfg = await scope(pixel); return cfg
+@app.get("/api/config", )
+async def api_config(request: Request, pixel: int | None = None):
+    _, _, cfg = await scope(request, pixel); return cfg
 
-@app.get("/api/config/defaults", dependencies=[Depends(auth)])
-async def api_config_defaults(): return settings.DEFAULTS
+@app.get("/api/config/defaults", )
+async def api_config_defaults(request: Request):
+    await auth.require_user(request)
+    return settings.DEFAULTS
 
-@app.put("/api/config", dependencies=[Depends(auth)])
-async def api_config_put(patch: dict, pixel: int | None = None):
-    h, p, _ = await scope(pixel)
+@app.put("/api/config", )
+async def api_config_put(request: Request, patch: dict, pixel: int | None = None):
+    h, p, _ = await scope(request, pixel)
     cfg = await settings.update(h["id"], p["id"], patch)
     for x in await repo.pixels_in_household(h["id"]):
         await bus.inbox_push(x["device_id"], {"type": "config"})
     return cfg
 
-@app.get("/api/models", dependencies=[Depends(auth)])
-async def api_models():
+@app.get("/api/models", )
+async def api_models(request: Request):
+    await auth.require_user(request)
     try: return {"host": C.OLLAMA_HOST, "models": await llm.list_models()}
     except Exception as e: return {"host": C.OLLAMA_HOST, "models": [], "error": str(e)}
 
-@app.get("/api/prompt", dependencies=[Depends(auth)])
-async def api_prompt(pixel: int | None = None):
-    _, _, cfg = await scope(pixel); return {"system_prompt": await memory.system_prompt(cfg)}
+@app.get("/api/prompt", )
+async def api_prompt(request: Request, pixel: int | None = None):
+    _, _, cfg = await scope(request, pixel); return {"system_prompt": await memory.system_prompt(cfg)}
 
-@app.get("/api/ambient", dependencies=[Depends(auth)])
-async def api_ambient(pixel: int | None = None):
-    h, _, _ = await scope(pixel); return await repo.ambient_get(h["id"])
+@app.get("/api/ambient", )
+async def api_ambient(request: Request, pixel: int | None = None):
+    h, _, _ = await scope(request, pixel); return await repo.ambient_get(h["id"])
 
-@app.post("/api/ambient/refresh", dependencies=[Depends(auth)])
-async def api_ambient_refresh(pixel: int | None = None):
-    _, _, cfg = await scope(pixel); return await ambient.refresh(cfg)
+@app.post("/api/ambient/refresh", )
+async def api_ambient_refresh(request: Request, pixel: int | None = None):
+    _, _, cfg = await scope(request, pixel); return await ambient.refresh(cfg)
 
-@app.get("/api/turns", dependencies=[Depends(auth)])
-async def api_turns(day: str | None = None, limit: int = 200, pixel: int | None = None):
-    h, _, cfg = await scope(pixel)
+@app.get("/api/turns", )
+async def api_turns(request: Request, day: str | None = None, limit: int = 200, pixel: int | None = None):
+    h, _, cfg = await scope(request, pixel)
     rows = await repo.turns(hid=h["id"], limit=limit, day=day, tz=cfg["timezone"])
     for r in rows: r["user"] = r.pop("user_text", None)   # portal compatibility
     return rows
 
-@app.delete("/api/turns/{turn_id}", dependencies=[Depends(auth)])
-async def api_turn_delete(turn_id: int): await repo.delete_turn(turn_id); return {"ok": True}
+@app.delete("/api/turns/{turn_id}", )
+async def api_turn_delete(request: Request, turn_id: int):
+    await auth.require_user(request)
+    await repo.delete_turn(turn_id); return {"ok": True}
 
-@app.get("/api/facts", dependencies=[Depends(auth)])
-async def api_facts(archived: bool = False, pixel: int | None = None):
-    h, _, _ = await scope(pixel); return await repo.facts(h["id"], include_archived=archived)
+@app.get("/api/facts", )
+async def api_facts(request: Request, archived: bool = False, pixel: int | None = None):
+    h, _, _ = await scope(request, pixel); return await repo.facts(h["id"], include_archived=archived)
 
-@app.post("/api/facts", dependencies=[Depends(auth)])
-async def api_fact_add(body: dict, pixel: int | None = None):
+@app.post("/api/facts", )
+async def api_fact_add(request: Request, body: dict, pixel: int | None = None):
     if not body.get("text"): raise HTTPException(400, "text required")
-    h, _, _ = await scope(pixel); return await repo.add_fact(h["id"], body["text"], body.get("type", "fact"), pinned=bool(body.get("pinned")))
+    h, _, _ = await scope(request, pixel); return await repo.add_fact(h["id"], body["text"], body.get("type", "fact"), pinned=bool(body.get("pinned")))
 
-@app.put("/api/facts/{fid}", dependencies=[Depends(auth)])
-async def api_fact_put(fid: int, body: dict):
+@app.put("/api/facts/{fid}", )
+async def api_fact_put(request: Request, fid: int, body: dict):
+    await auth.require_user(request)
     f = await repo.update_fact(fid, **{k: body.get(k) for k in ("text", "type", "pinned", "archived")})
     if not f: raise HTTPException(404)
     return f
 
-@app.delete("/api/facts/{fid}", dependencies=[Depends(auth)])
-async def api_fact_delete(fid: int): await repo.delete_fact(fid); return {"ok": True}
+@app.delete("/api/facts/{fid}", )
+async def api_fact_delete(request: Request, fid: int):
+    await auth.require_user(request)
+    await repo.delete_fact(fid); return {"ok": True}
 
-@app.post("/api/facts/forget_all", dependencies=[Depends(auth)])
-async def api_forget_all(pixel: int | None = None):
-    h, _, _ = await scope(pixel); await repo.forget_all(h["id"]); return {"ok": True}
+@app.post("/api/facts/forget_all", )
+async def api_forget_all(request: Request, pixel: int | None = None):
+    h, _, _ = await scope(request, pixel); await repo.forget_all(h["id"]); return {"ok": True}
 
-@app.get("/api/followups", dependencies=[Depends(auth)])
-async def api_followups(pixel: int | None = None):
-    h, _, _ = await scope(pixel); return await repo.followups(h["id"], open_only=False)
+@app.get("/api/followups", )
+async def api_followups(request: Request, pixel: int | None = None):
+    h, _, _ = await scope(request, pixel); return await repo.followups(h["id"], open_only=False)
 
-@app.put("/api/followups/{fid}", dependencies=[Depends(auth)])
-async def api_followup_put(fid: int, body: dict): await repo.resolve_followup(fid, bool(body.get("done", True))); return {"ok": True}
+@app.put("/api/followups/{fid}", )
+async def api_followup_put(request: Request, fid: int, body: dict):
+    await auth.require_user(request)
+    await repo.resolve_followup(fid, bool(body.get("done", True))); return {"ok": True}
 
-@app.delete("/api/followups/{fid}", dependencies=[Depends(auth)])
-async def api_followup_delete(fid: int): await repo.delete_followup(fid); return {"ok": True}
+@app.delete("/api/followups/{fid}", )
+async def api_followup_delete(request: Request, fid: int):
+    await auth.require_user(request)
+    await repo.delete_followup(fid); return {"ok": True}
 
-@app.get("/api/summaries", dependencies=[Depends(auth)])
-async def api_summaries(pixel: int | None = None):
-    h, _, _ = await scope(pixel); return await repo.summaries(h["id"])
+@app.get("/api/summaries", )
+async def api_summaries(request: Request, pixel: int | None = None):
+    h, _, _ = await scope(request, pixel); return await repo.summaries(h["id"])
 
-@app.post("/api/memory/extract", dependencies=[Depends(auth)])
-async def api_extract_now(pixel: int | None = None):
-    h, _, cfg = await scope(pixel); await memory.extract(cfg); return {"ok": True, "facts": await repo.facts(h["id"])}
+@app.post("/api/memory/extract", )
+async def api_extract_now(request: Request, pixel: int | None = None):
+    h, _, cfg = await scope(request, pixel); await memory.extract(cfg); return {"ok": True, "facts": await repo.facts(h["id"])}
 
-@app.post("/api/chat", dependencies=[Depends(auth)])
-async def api_chat(body: dict, pixel: int | None = None):
+@app.post("/api/chat", )
+async def api_chat(request: Request, body: dict, pixel: int | None = None):
     if not body.get("text"): raise HTTPException(400, "text required")
-    h, p, cfg = await scope(pixel)
+    h, p, cfg = await scope(request, pixel)
     return await respond(None, None, cfg, body["text"], want_audio=False)
 
-@app.post("/api/admin/drain", dependencies=[Depends(auth)])
-async def api_drain():
+@app.post("/api/admin/drain", )
+async def api_drain(request: Request):
+    await auth.require_user(request)
     n = 0
     for d in await bus.presence_all():
         await bus.inbox_push(d, {"type": "redeploy", "wait_s": 60}); n += 1
     return {"notified": n}
 
-@app.get("/api/device/events", dependencies=[Depends(auth)])
-async def api_device_events(limit: int = 60, pixel: int | None = None):
-    _, p, _ = await scope(pixel); return await repo.device_events(p["id"], limit)
+@app.get("/api/device/events", )
+async def api_device_events(request: Request, limit: int = 60, pixel: int | None = None):
+    _, p, _ = await scope(request, pixel); return await repo.device_events(p["id"], limit)
 
-@app.post("/api/device/say", dependencies=[Depends(auth)])
-async def api_device_say(body: dict, pixel: int | None = None):
+@app.post("/api/device/say", )
+async def api_device_say(request: Request, body: dict, pixel: int | None = None):
     present = await bus.presence_all()
     device = body.get("device") or next(iter(present), None)
     if not device or device not in present: raise HTTPException(409, "no device connected")

@@ -1,7 +1,7 @@
 # Pixel Platform — Plan & Task Tracker
 
 _Living document. Claude works top-down through the unchecked tasks and updates this file as things land.
-Last updated: 2026-09-09 (P0 done locally; Modal frozen at its last deploy — `modal_app.py` is no longer deployable from this tree and is retired at P3)._
+Last updated: 2026-09-09 (P0 + P1 done locally; Modal frozen at its last deploy — `modal_app.py` is no longer deployable from this tree and is retired at P3)._
 
 ## Decisions (settled — do not re-open without a reason)
 
@@ -62,10 +62,10 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 - [x] Simulator + current board work against `localhost` Compose end to end (face, tools, memory, ambient)
 
 ### P1 — Auth & profiles
-- [ ] Auth provider interface; `dev` provider (env credentials); session cookies; CSRF for portal POSTs
-- [ ] `users`, `households`, membership on first login
-- [ ] Portal: login page, PROFILE page (name, avatar, sign out), household switcher stub
-- [ ] Google provider (Authlib) wired but disabled until cutover
+- [x] Auth provider interface; `dev` provider (env credentials); session cookies; CSRF for portal POSTs
+- [x] `users`, `households`, membership on first login
+- [x] Portal: login page, PROFILE page (name, avatar, sign out, household name, members, Pixels) — switcher deferred to P2
+- [x] Google provider (Authlib) wired but disabled until cutover
 
 ### P2 — Multi-Pixel & pairing
 - [ ] Firmware: start the turn timer on `transcript` so portal-initiated turns report real latencies (currently bogus on inbox turns)
