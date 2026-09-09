@@ -158,32 +158,41 @@ async def ws_talk(ws: WebSocket):
                 if not text or len(text.split()) < 1: await send(type="transcript", text="", note="nothing recognised"); return
             await send(type="transcript", text=text, t=stamps.get("t_transcript"))
             history.append({"role": "user", "content": text})
-            ch = Chunker(); reply = ""; first_tok = True; first_audio = True
+            ch = Chunker(); reply = ""; first_tok = True; first_audio = True; nchunk = 0
             tts_q: asyncio.Queue = asyncio.Queue()
+            def ms(): return round((time.perf_counter() - t_eos) * 1000)
+            async def enqueue(text):
+                nonlocal nchunk
+                nchunk += 1; await send(type="chunk", id=nchunk, text=text, state="queued", t=ms()); await tts_q.put((nchunk, text))
             async def speaker():
                 nonlocal first_audio
                 while True:
-                    chunk = await tts_q.get()
-                    if chunk is None: break
-                    if cancel.is_set(): continue
+                    item = await tts_q.get()
+                    if item is None: break
+                    cid, chunk = item
+                    if cancel.is_set(): await send(type="chunk", id=cid, state="cancelled", t=ms()); continue
+                    await send(type="chunk", id=cid, state="synth", t=ms())
                     e = T.ENGINES[cfg["tts"]]
                     def gen():
                         for c in e.stream(chunk, cfg.get("voice")): yield c
                     loop = asyncio.get_running_loop()
-                    it = gen()
+                    it = gen(); nbytes = 0; t_synth = time.perf_counter()
                     while not cancel.is_set():
                         async with _lock: c = await loop.run_in_executor(None, lambda: next(it, None))
                         if c is None: break
+                        if nbytes == 0: await send(type="chunk", id=cid, state="audio", t=ms())     # frames for this chunk follow
                         if first_audio: first_audio = False; T_("t_first_audio"); await send(type="first_audio", t=stamps["t_first_audio"])
-                        await ws.send_bytes(c)
+                        nbytes += len(c); await ws.send_bytes(c)
+                    await send(type="chunk", id=cid, state="ready", t=ms(), audio_s=round(nbytes / 2 / SR, 2), synth_ms=round((time.perf_counter() - t_synth) * 1000))
             sp = asyncio.create_task(speaker())
             async for delta in L.stream(history, cfg.get("model")):
                 if cancel.is_set(): break
                 if first_tok: first_tok = False; T_("t_first_token"); await send(type="first_token", t=stamps["t_first_token"])
                 reply += delta; await send(type="delta", text=delta)
-                for c in ch.feed(delta): await tts_q.put(c)
+                for c in ch.feed(delta): await enqueue(c)
             if not cancel.is_set():
-                for c in ch.flush(): await tts_q.put(c)
+                for c in ch.flush(): await enqueue(c)
+            await send(type="llm_done", t=ms())
             await tts_q.put(None); await sp
             T_("t_done")
             history.append({"role": "assistant", "content": reply})

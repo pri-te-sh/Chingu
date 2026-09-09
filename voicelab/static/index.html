@@ -21,7 +21,10 @@ table{width:100%;border-collapse:collapse}td,th{padding:6px 8px;border-bottom:1p
 .meter{height:10px;background:#0e1219;border-radius:5px;overflow:hidden;flex:1}.meter i{display:block;height:100%;background:var(--green);width:0;transition:width .08s}
 .tl{position:relative;height:14px;background:#0e1219;border-radius:7px;margin:6px 0}.tl i{position:absolute;top:0;bottom:0;width:2px;background:var(--amber)}.tl span{position:absolute;top:16px;font-size:10px;color:var(--mut);transform:translateX(-50%)}
 .stars button{background:none;border:0;color:var(--edge);font-size:18px;cursor:pointer;padding:0 2px}.stars button.on{color:var(--amber)}
-.chat{max-height:340px;overflow:auto}.chat div{padding:4px 0}.chat .u{color:var(--cyan)}.chat .p{color:var(--tx)}
+.chat{max-height:340px;overflow:auto}
+.chunks{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;min-height:26px}.ck{border:1px solid var(--edge);border-radius:6px;padding:3px 8px;font-size:12px;color:var(--mut);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ck.queued{border-style:dashed}.ck.synth{border-color:var(--amber);color:var(--amber)}.ck.audio,.ck.ready{border-color:var(--cyan);color:var(--cyan)}.ck.playing{background:var(--green);border-color:var(--green);color:#111}.ck.done{border-color:var(--green);color:var(--green)}.ck.cancelled{border-color:var(--red);color:var(--red);text-decoration:line-through}
+.legend span{display:inline-block;margin-right:10px;font-size:11px}.chat div{padding:4px 0}.chat .u{color:var(--cyan)}.chat .p{color:var(--tx)}
 .diff del{color:var(--red);text-decoration:line-through}.diff ins{color:var(--green);text-decoration:none}
 small{color:var(--mut)}
 </style></head><body>
@@ -44,7 +47,9 @@ small{color:var(--mut)}
 <section id="talk">
  <div class="card"><div class="row"><b>Stack</b> STT <select id="tk-stt"></select> TTS <select id="tk-tts"></select> <select id="tk-voice"></select> VAD <select id="tk-vad"><option>energy</option><option>silero</option></select><label class="chk"><input type="checkbox" id="tk-barge" checked>barge-in</label><span style="margin-left:auto"></span><button class="b" id="tk-btn" onclick="talkToggle()">START</button><button class="b ghost" onclick="talkReset()">RESET CHAT</button></div>
   <div class="row" style="margin-top:8px"><input type="text" id="tk-text" placeholder="or type instead of talking…" style="flex:1" onkeydown="if(event.key==='Enter')talkText()"><button class="b ghost" onclick="talkText()">SEND</button><span id="tk-state" class="muted">off</span></div></div>
- <div class="card"><b>Last turn</b> <span id="tk-stack" class="muted"></span><div class="tl" id="tk-tl"></div><div style="height:16px"></div><div id="tk-nums" class="muted"></div></div>
+ <div class="card"><b>Last turn</b> <span id="tk-stack" class="muted"></span><div class="tl" id="tk-tl"></div><div style="height:16px"></div><div id="tk-nums" class="muted"></div>
+  <div class="row" style="margin-top:10px"><b>TTS pipeline</b><span class="legend muted"><span class="ck queued">queued</span><span class="ck synth">synthesising</span><span class="ck ready">audio ready</span><span class="ck playing">playing</span><span class="ck done">done</span></span><span id="tk-llm" class="muted" style="margin-left:auto"></span></div>
+  <div class="chunks" id="tk-chunks"></div></div>
  <div class="card chat" id="tk-chat"></div>
 </section>
 
@@ -104,15 +109,21 @@ async function rate(btn,e,v,n){[...btn.parentNode.children].forEach((b,i)=>b.cla
 /* ---- TALK ---- */
 let talkWs=null,player=null,turn=null;
 function stackCfg(){return{stt:$('#tk-stt').value,tts:$('#tk-tts').value,voice:$('#tk-voice').value,vad:$('#tk-vad').value,barge_in:$('#tk-barge').checked}}
-class Player{constructor(){this.ctx=new AudioContext({sampleRate:16000});this.t=0;this.nodes=[]}
- push(buf){const i16=new Int16Array(buf);const b=this.ctx.createBuffer(1,i16.length,16000);const ch=b.getChannelData(0);for(let i=0;i<i16.length;i++)ch[i]=i16[i]/32768;const s=this.ctx.createBufferSource();s.buffer=b;s.connect(this.ctx.destination);const at=Math.max(this.ctx.currentTime+0.02,this.t);s.start(at);this.t=at+b.duration;this.nodes.push(s);s.onended=()=>{this.nodes=this.nodes.filter(n=>n!==s)}}
- stop(){this.nodes.forEach(n=>{try{n.stop()}catch(e){}});this.nodes=[];this.t=0}
+class Player{constructor(){this.ctx=new AudioContext({sampleRate:16000});this.t=0;this.nodes=[];this.cur=null;this.timers=[]}
+ mark(id){this.cur=id;this.first=true}
+ push(buf){const i16=new Int16Array(buf);const b=this.ctx.createBuffer(1,i16.length,16000);const ch=b.getChannelData(0);for(let i=0;i<i16.length;i++)ch[i]=i16[i]/32768;const s=this.ctx.createBufferSource();s.buffer=b;s.connect(this.ctx.destination);const at=Math.max(this.ctx.currentTime+0.02,this.t);s.start(at);this.t=at+b.duration;this.nodes.push(s);s.onended=()=>{this.nodes=this.nodes.filter(n=>n!==s)};
+  if(this.cur!=null&&this.first){this.first=false;const id=this.cur;this.timers.push(setTimeout(()=>chunkState(id,'playing'),(at-this.ctx.currentTime)*1000))}}
+ scheduleDone(id){const d=(this.t-this.ctx.currentTime)*1000;this.timers.push(setTimeout(()=>chunkState(id,'done'),Math.max(0,d)+30))}
+ stop(){this.nodes.forEach(n=>{try{n.stop()}catch(e){}});this.nodes=[];this.t=0;this.timers.forEach(clearTimeout);this.timers=[];this.cur=null}
  get playing(){return this.nodes.length>0}}
 async function talkToggle(){if(talkWs){talkWs.close();return}
  talkWs=new WebSocket(`ws://${location.host}/ws/talk`);talkWs.binaryType='arraybuffer';player=new Player();
  talkWs.onopen=async()=>{talkWs.send(JSON.stringify(stackCfg()));await micStart(b=>{if(talkWs.readyState!==1)return;talkWs.send(b)});$('#tk-btn').textContent='STOP';$('#tk-btn').classList.add('red');$('#tk-state').textContent='listening'};
  talkWs.onmessage=e=>{if(typeof e.data!=='string'){player.push(e.data);return}const d=JSON.parse(e.data);
-  if(d.type==='speech_end_detected'){player.stop();turn={t0:performance.now(),marks:{}};$('#tk-state').textContent=`heard ${d.audio_s}s · transcribing`;$('#tk-tl').innerHTML='';$('#tk-nums').textContent=''}
+  if(d.type==='speech_end_detected'){player.stop();turn={t0:performance.now(),marks:{}};$('#tk-state').textContent=`heard ${d.audio_s}s · transcribing`;$('#tk-tl').innerHTML='';$('#tk-nums').textContent='';$('#tk-chunks').innerHTML='';$('#tk-llm').textContent=''}
+  else if(d.type==='chunk'){let el=document.querySelector(`[data-ck="${d.id}"]`);if(!el){el=document.createElement('span');el.dataset.ck=d.id;el.className='ck';el.textContent=d.text;el.title=d.text;$('#tk-chunks').appendChild(el)}
+   if(d.state==='audio')player.mark(d.id);else if(d.state==='ready'){el.title=`${d.text}\nsynth ${d.synth_ms} ms · ${d.audio_s}s audio`;if(!el.classList.contains('playing'))chunkState(d.id,'ready');player.scheduleDone(d.id)}else chunkState(d.id,d.state)}
+  else if(d.type==='llm_done')$('#tk-llm').textContent=`LLM finished at ${d.t} ms`;
   else if(d.type==='transcript'){if(!turn)turn={t0:performance.now(),marks:{}};if(d.t!=null)mark('transcript',d.t);addChat('u',d.text||'(nothing)');$('#tk-state').textContent='thinking';cur=addChat('p','')}
   else if(d.type==='first_token')mark('first token',d.t);else if(d.type==='first_audio'){mark('first audio',d.t);$('#tk-state').textContent='speaking'}
   else if(d.type==='delta'&&cur)cur.textContent+=d.text;
@@ -123,7 +134,8 @@ async function talkToggle(){if(talkWs){talkWs.close();return}
 let cur=null;
 function addChat(cls,text){const d=document.createElement('div');d.className=cls;d.textContent=(cls==='u'?'you  ':'pixel  ')+text;$('#tk-chat').appendChild(d);$('#tk-chat').scrollTop=1e9;return d}
 function mark(label,ms){if(ms==null)return;const tl=$('#tk-tl');const x=Math.min(100,ms/3000*100);tl.insertAdjacentHTML('beforeend',`<i style="left:${x}%"></i><span style="left:${x}%">${label} ${ms}</span>`)}
-function talkText(){const t=$('#tk-text').value.trim();if(!t||!talkWs)return;player.stop();turn={t0:performance.now()};$('#tk-tl').innerHTML='';talkWs.send(JSON.stringify({type:'text',text:t}));$('#tk-text').value=''}
+function chunkState(id,st){const el=document.querySelector(`[data-ck="${id}"]`);if(!el)return;const rank={queued:0,synth:1,audio:2,ready:2,playing:3,done:4,cancelled:5};const cur=[...el.classList].find(c=>rank[c]!=null);if(cur&&rank[cur]>rank[st])return;el.className='ck '+st}
+function talkText(){const t=$('#tk-text').value.trim();if(!t||!talkWs)return;player.stop();turn={t0:performance.now()};$('#tk-tl').innerHTML='';$('#tk-chunks').innerHTML='';$('#tk-llm').textContent='';talkWs.send(JSON.stringify({type:'text',text:t}));$('#tk-text').value=''}
 function talkReset(){talkWs&&talkWs.send(JSON.stringify({type:'reset'}));$('#tk-chat').innerHTML=''}
 
 /* ---- RESULTS ---- */
