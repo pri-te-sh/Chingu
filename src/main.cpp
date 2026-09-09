@@ -15,29 +15,35 @@ TFT_eSPI tft;
 Face face(tft);
 DebugUI debugUi(tft);
 
-// Setup / pairing overlay drawn over the face: AP name while provisioning, the pairing code while unclaimed.
-static void drawStateOverlay() {
-  static net::State last = net::READY; static char lastCode[8] = ""; static uint32_t lastDraw = 0;
+// While the device is not paired & online, the face is paused and a status screen takes over.
+static void drawStateScreen() {
+  static net::State last = net::READY; static char lastCode[8] = ""; static char lastSsid[33] = "";
   net::State st = net::state();
-  bool changed = st != last || strcmp(lastCode, net::pairingCode()) != 0;
-  if (!changed && millis() - lastDraw < 1000) return;
-  lastDraw = millis();
-  if (st == net::READY) { if (changed) { face.begin(); prefs::apply(face, tft); } last = st; lastCode[0] = 0; return; }
-  last = st; strlcpy(lastCode, net::pairingCode(), sizeof lastCode);
+  bool changed = st != last || strcmp(lastCode, net::pairingCode()) != 0 || strcmp(lastSsid, prefs::wifiSsid) != 0;
   if (!changed) return;
-  tft.fillRect(0, 168, SCREEN_W, SCREEN_H - 168, TFT_BLACK);
+  last = st; strlcpy(lastCode, net::pairingCode(), sizeof lastCode); strlcpy(lastSsid, prefs::wifiSsid, sizeof lastSsid);
+  if (st == net::READY) { face.begin(); prefs::apply(face, tft); return; }     // back to the face, fresh canvas
+  tft.fillScreen(TFT_BLACK);
   tft.setTextDatum(MC_DATUM);
+  // small closed eyes at the top so it still reads as Pixel
+  uint16_t eye = pxRGB(prefs::eyeRGB >> 16, (prefs::eyeRGB >> 8) & 0xFF, prefs::eyeRGB & 0xFF);
+  tft.fillSmoothRoundRect(96, 44, 46, 10, 5, eye, TFT_BLACK); tft.fillSmoothRoundRect(178, 44, 46, 10, 5, eye, TFT_BLACK);
   if (st == net::PROVISIONING) {
-    tft.setTextColor(pxRGB(245, 179, 1), TFT_BLACK); tft.drawString("Let's get me online", SCREEN_W / 2, 182, 2);
-    tft.setTextColor(pxRGB(236, 238, 245), TFT_BLACK); tft.drawString(String("Join Wi-Fi  ") + net::apName(), SCREEN_W / 2, 204, 2);
-    tft.setTextColor(pxRGB(140, 150, 180), TFT_BLACK); tft.drawString("then open http://192.168.4.1", SCREEN_W / 2, 224, 2);
+    tft.setTextColor(pxRGB(245, 179, 1), TFT_BLACK); tft.drawString("Let's get me online", SCREEN_W / 2, 96, 4);
+    tft.setTextColor(pxRGB(236, 238, 245), TFT_BLACK); tft.drawString("On your phone, join the Wi-Fi", SCREEN_W / 2, 136, 2);
+    tft.setTextColor(pxRGB(245, 179, 1), TFT_BLACK); tft.drawString(net::apName(), SCREEN_W / 2, 164, 4);
+    tft.setTextColor(pxRGB(140, 150, 180), TFT_BLACK); tft.drawString("a setup page opens (or visit 192.168.4.1)", SCREEN_W / 2, 200, 2);
   } else if (st == net::PAIRING) {
-    tft.setTextColor(pxRGB(236, 238, 245), TFT_BLACK); tft.drawString("Add me in the portal with code", SCREEN_W / 2, 180, 2);
-    tft.setTextColor(pxRGB(245, 179, 1), TFT_BLACK); tft.drawString(net::pairingCode(), SCREEN_W / 2, 212, 6);
+    tft.setTextColor(pxRGB(236, 238, 245), TFT_BLACK); tft.drawString("Add me in the Pixel portal", SCREEN_W / 2, 92, 2);
+    tft.drawString("with this code", SCREEN_W / 2, 112, 2);
+    tft.setTextColor(pxRGB(245, 179, 1), TFT_BLACK); tft.setTextSize(2); tft.drawString(net::pairingCode(), SCREEN_W / 2, 158, 4); tft.setTextSize(1);
+    tft.setTextColor(pxRGB(140, 150, 180), TFT_BLACK); tft.drawString("Profile > Add a Pixel", SCREEN_W / 2, 204, 2);
   } else if (st == net::CONNECTING_WIFI) {
-    tft.setTextColor(pxRGB(140, 150, 180), TFT_BLACK); tft.drawString(String("connecting to ") + prefs::wifiSsid + "...", SCREEN_W / 2, 200, 2);
+    tft.setTextColor(pxRGB(140, 150, 180), TFT_BLACK); tft.drawString(String("joining ") + prefs::wifiSsid + " ...", SCREEN_W / 2, 140, 2);
+    tft.drawString("hold BOOT 10 s to start over", SCREEN_W / 2, 204, 1);
   } else if (st == net::CONNECTING_BRAIN) {
-    tft.setTextColor(pxRGB(140, 150, 180), TFT_BLACK); tft.drawString("reaching my brain...", SCREEN_W / 2, 200, 2);
+    tft.setTextColor(pxRGB(140, 150, 180), TFT_BLACK); tft.drawString("reaching my brain ...", SCREEN_W / 2, 140, 2);
+    tft.drawString(String(prefs::brainHost) + ":" + prefs::brainPort, SCREEN_W / 2, 164, 2);
   }
 }
 
@@ -115,7 +121,9 @@ void setup() {
 }
 
 void loop() {
-  if (debugUi.active()) debugUi.update(); else { face.update(); drawStateOverlay(); }
+  if (debugUi.active()) debugUi.update();
+  else if (net::state() == net::READY) { drawStateScreen(); face.update(); }
+  else drawStateScreen();
   net::loop();
   handleSerial();
 
