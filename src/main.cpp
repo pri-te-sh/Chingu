@@ -1,6 +1,6 @@
 // Pixel - Tiny AI Companion firmware. Phase 2: animated face with autonomous behaviour.
 // Controls for testing: BOOT button cycles expressions; serial commands (115200):
-//   expr <name> [intensity 0-1] [holdMs]   list   sleep   wake   look <x> <y>   say <text>   net   debug   verbose
+//   expr <name> [intensity 0-1] [holdMs]   list   sleep   wake   look <x> <y>   say <text>   net   debug   verbose   update   id
 // Long-press BOOT (>=1.5 s) or hold the screen 2 s: settings/diagnostics mode. Hold BOOT 10 s: factory reset (Wi-Fi + pairing).
 #include <Arduino.h>
 #include <TFT_eSPI.h>
@@ -10,6 +10,7 @@
 #include "log.h"
 #include "debug_ui.h"
 #include "prefs.h"
+#include "ota.h"
 
 TFT_eSPI tft;
 Face face(tft);
@@ -39,11 +40,45 @@ static void drawStateScreen() {
     tft.setTextColor(pxRGB(245, 179, 1), TFT_BLACK); tft.setTextSize(2); tft.drawString(net::pairingCode(), SCREEN_W / 2, 158, 4); tft.setTextSize(1);
     tft.setTextColor(pxRGB(140, 150, 180), TFT_BLACK); tft.drawString("Profile > Add a Pixel", SCREEN_W / 2, 204, 2);
   } else if (st == net::CONNECTING_WIFI) {
-    tft.setTextColor(pxRGB(140, 150, 180), TFT_BLACK); tft.drawString(String("joining ") + prefs::wifiSsid + " ...", SCREEN_W / 2, 140, 2);
+    tft.setTextColor(pxRGB(140, 150, 180), TFT_BLACK); { String j = String("joining ") + prefs::wifiSsid + " ..."; while (tft.textWidth(j, 2) > SCREEN_W - 16 && j.length() > 12) j = j.substring(0, j.length() - 5) + "...";  tft.drawString(j, SCREEN_W / 2, 140, 2); }
     tft.drawString("hold BOOT 10 s to start over", SCREEN_W / 2, 204, 1);
   } else if (st == net::CONNECTING_BRAIN) {
     tft.setTextColor(pxRGB(140, 150, 180), TFT_BLACK); tft.drawString("reaching my brain ...", SCREEN_W / 2, 140, 2);
     tft.drawString(String(prefs::brainHost) + ":" + prefs::brainPort, SCREEN_W / 2, 164, 2);
+  }
+}
+
+// Full-screen progress while a firmware update downloads (the face is paused; nothing else runs).
+static void drawUpdateProgress(uint8_t pct, const char* stage) {
+  static bool drawn = false; static uint8_t lastPct = 255;
+  if (!drawn) {
+    drawn = true; tft.fillScreen(TFT_BLACK); tft.setTextDatum(MC_DATUM);
+    uint16_t eye = pxRGB(prefs::eyeRGB >> 16, (prefs::eyeRGB >> 8) & 0xFF, prefs::eyeRGB & 0xFF);
+    tft.fillSmoothRoundRect(96, 44, 46, 10, 5, eye, TFT_BLACK); tft.fillSmoothRoundRect(178, 44, 46, 10, 5, eye, TFT_BLACK);
+    tft.setTextColor(pxRGB(245, 179, 1), TFT_BLACK); tft.drawString("Updating myself", SCREEN_W / 2, 96, 4);
+    tft.setTextColor(pxRGB(140, 150, 180), TFT_BLACK); tft.drawString("keep me plugged in - about a minute", SCREEN_W / 2, 200, 2);
+    tft.fillSmoothRoundRect(40, 140, 240, 14, 7, pxRGB(30, 36, 54), TFT_BLACK);
+  }
+  if (pct != lastPct) {
+    lastPct = pct;
+    int w = 240 * pct / 100;
+    if (w > 14) tft.fillSmoothRoundRect(40, 140, w, 14, 7, pxRGB(70, 220, 130), pxRGB(30, 36, 54));
+    char b[40]; snprintf(b, sizeof b, "%s  %u%%   ", stage, pct);
+    tft.setTextDatum(MC_DATUM); tft.setTextColor(pxRGB(236, 238, 245), TFT_BLACK); tft.fillRect(60, 160, 200, 20, TFT_BLACK); tft.drawString(b, SCREEN_W / 2, 170, 2);
+  }
+  if (!strcmp(stage, "rebooting")) drawn = false;
+}
+
+// Portal push or the on-device Update screen asked for an install: check, download, reboot (or report failure).
+static void runInstall() {
+  ota::Manifest m;
+  if (!ota::check(m) || !ota::available()) { dbg::log("[ota] nothing to install"); return; }
+  if (debugUi.active()) debugUi.exit();
+  drawUpdateProgress(0, "starting");
+  if (!ota::update(m)) {                       // only returns on failure
+    tft.setTextDatum(MC_DATUM); tft.setTextColor(pxRGB(255, 90, 90), TFT_BLACK); tft.fillRect(0, 160, SCREEN_W, 24, TFT_BLACK);
+    tft.drawString("update failed - I'll keep running this version", SCREEN_W / 2, 170, 2);
+    delay(2500); face.begin(); prefs::apply(face, tft);
   }
 }
 
@@ -89,6 +124,7 @@ static void handleSerial() {
       else if (!strcmp(cmd, "setup")) { prefs::forgetWifi(); ESP.restart(); }
       else if (!strcmp(cmd, "unpair")) { prefs::forgetToken(); ESP.restart(); }
       else if (!strcmp(cmd, "factory")) { prefs::factoryReset(); ESP.restart(); }
+      else if (!strcmp(cmd, "update")) { ota::Manifest m; bool a = ota::check(m); Serial.printf("fw %s latest %s %s\n", ota::version(), m.version[0] ? m.version : "(none)", a ? "- installing" : "- up to date"); if (a) ota::requestInstall(); }
       else if (!strcmp(cmd, "id")) Serial.printf("device %s brain %s:%u tls %d paired %d\n", prefs::deviceId(), prefs::brainHost, prefs::brainPort, prefs::brainTls, prefs::hasToken());
       else if (!strcmp(cmd, "verbose")) { dbg::verbose = !dbg::verbose; Serial.printf("verbose %s\n", dbg::verbose ? "on" : "off"); }
       else if (!strcmp(cmd, "net")) Serial.printf("net: %s\n", net::connected() ? "connected" : "not connected");
@@ -101,7 +137,7 @@ static void handleSerial() {
 void setup() {
   Serial.begin(115200);
   delay(200);
-  Serial.println("\n[pixel] boot - phase 2 face");
+  Serial.printf("\n[pixel] boot - firmware %s\n", PIXEL_FW_VERSION);
 
   pinMode(PIN_LED_R, OUTPUT); pinMode(PIN_LED_G, OUTPUT); pinMode(PIN_LED_B, OUTPUT); setLed(0, 0, 0);
   pinMode(PIN_AMP_EN, OUTPUT); digitalWrite(PIN_AMP_EN, HIGH);   // amp off until we have audio
@@ -114,6 +150,7 @@ void setup() {
   tft.setTouch(calData);
 
   prefs::load();
+  ota::begin(); ota::onProgress(drawUpdateProgress);
   face.begin();
   prefs::apply(face, tft);
   net::begin(face, tft);
@@ -125,6 +162,8 @@ void loop() {
   else if (net::state() == net::READY) { drawStateScreen(); face.update(); }
   else drawStateScreen();
   net::loop();
+  ota::loop();
+  if (ota::takeInstallRequest()) runInstall();
   handleSerial();
 
   // touch: act on press edge; re-aim gaze while held; a 2 s hold toggles settings mode

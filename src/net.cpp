@@ -2,6 +2,7 @@
 #include "board.h"
 #include "log.h"
 #include "prefs.h"
+#include "ota.h"
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DNSServer.h>
@@ -103,7 +104,7 @@ static void onEvent(WStype_t type, uint8_t* payload, size_t len) {
       dbg::log("[net] ws connected");
       state_ = CONNECTING_BRAIN;
       JsonDocument d;
-      d["type"] = "hello"; d["device"] = prefs::deviceId(); d["device_type"] = "lite"; d["fw"] = __DATE__ " " __TIME__;
+      d["type"] = "hello"; d["device"] = prefs::deviceId(); d["device_type"] = "lite"; d["fw"] = ota::version(); d["build"] = __DATE__ " " __TIME__;
       if (prefs::hasToken()) d["token"] = prefs::token;
       JsonObject caps = d["capabilities"].to<JsonObject>();
       caps["speaker"] = false; caps["mic"] = false; caps["camera"] = false; caps["touch"] = true; caps["display"] = "320x240";
@@ -120,7 +121,8 @@ static void onEvent(WStype_t type, uint8_t* payload, size_t len) {
       JsonDocument d;
       if (deserializeJson(d, payload, len)) break;
       const char* t = d["type"] | "";
-      if (!strcmp(t, "ready")) { ready_ = true; state_ = READY; pairingCode_[0] = 0; dbg::log("[net] brain ready"); sendStatus(); }
+      if (!strcmp(t, "ready")) { ready_ = true; state_ = READY; pairingCode_[0] = 0; dbg::log("[net] brain ready"); ota::markHealthy(); sendStatus(); }
+      else if (!strcmp(t, "ota")) { dbg::log("[net] update requested by the portal"); ota::requestInstall(); }
       else if (!strcmp(t, "pairing")) {
         strlcpy(pairingCode_, d["code"] | "", sizeof pairingCode_); state_ = PAIRING;
         dbg::log("[net] waiting to be paired - code %s", pairingCode_);
@@ -201,7 +203,7 @@ static void sendStatus() {
   if (!ready_) return;
   JsonDocument d;
   d["type"] = "status"; d["rssi"] = WiFi.RSSI(); d["heap"] = ESP.getFreeHeap(); d["uptime_s"] = millis() / 1000;
-  d["ip"] = WiFi.localIP().toString(); d["fw"] = __DATE__ " " __TIME__; d["expr"] = expressionName(face_->expression());
+  d["ip"] = WiFi.localIP().toString(); d["fw"] = ota::version(); d["build"] = __DATE__ " " __TIME__; d["ota"] = ota::state(); d["expr"] = expressionName(face_->expression());
   d["name"] = prefs::name; d["reset_reason"] = (int)esp_reset_reason(); d["min_heap"] = ESP.getMinFreeHeap();
   String s; serializeJson(d, s); ws.sendTXT(s);
 }

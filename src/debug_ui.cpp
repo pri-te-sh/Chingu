@@ -3,6 +3,7 @@
 #include "log.h"
 #include "net.h"
 #include "prefs.h"
+#include "ota.h"
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <qrcode.h>
@@ -69,11 +70,20 @@ void DebugUI::pill(const Rect& r, const char* label, uint16_t fill, uint16_t tex
   tft_.drawString(label, r.x + r.w / 2, r.y + r.h / 2, font);
 }
 
+const char* DebugUI::fit(const char* text, int w, int font) {
+  static char buf[96];
+  strlcpy(buf, text, sizeof buf);
+  if (tft_.textWidth(buf, font) <= w) return buf;
+  size_t n = strlen(buf);
+  while (n > 1) { buf[--n] = 0; strcpy(buf + n, "..."); if (tft_.textWidth(buf, font) <= w) break; buf[n] = 0; }
+  return buf;
+}
+
 void DebugUI::kv(int x, int y, int w, const char* key, const char* val, uint16_t valColor) {
   tft_.fillRect(x, y, w, 18, BG);
   tft_.setTextDatum(TL_DATUM);
   tft_.setTextColor(MUTED, BG); tft_.drawString(key, x, y + 1, 2);
-  tft_.setTextColor(valColor, BG); tft_.drawString(val, x + 76, y + 1, 2);
+  tft_.setTextColor(valColor, BG); tft_.drawString(fit(val, w - 76, 2), x + 76, y + 1, 2);
 }
 
 void DebugUI::hbar(int x, int y, int w, int h, float frac, uint16_t color) {
@@ -159,6 +169,12 @@ void DebugUI::iconGear(int cx, int cy, uint16_t c) {
   for (int i = 0; i < 8; i++) { float a = i * PI / 4; tft_.fillSmoothCircle(cx + cosf(a) * 15, cy + sinf(a) * 15, 3, c, CARD); }
 }
 
+void DebugUI::iconDownload(int cx, int cy, uint16_t c) {
+  tft_.fillRect(cx - 3, cy - 16, 6, 16, c);
+  tft_.fillTriangle(cx - 11, cy - 2, cx + 11, cy - 2, cx, cy + 9, c);
+  tft_.fillSmoothRoundRect(cx - 16, cy + 12, 32, 4, 2, c, CARD);
+}
+
 void DebugUI::iconFace(int cx, int cy, uint16_t c) {
   tft_.fillSmoothRoundRect(cx - 18, cy - 12, 12, 16, 4, c, CARD);
   tft_.fillSmoothRoundRect(cx + 6, cy - 12, 12, 16, 4, c, CARD);
@@ -181,12 +197,13 @@ void DebugUI::show(Screen s) {
     case SYSTEM:   header("System", true); drawSystem(); break;
     case PORTAL:   header("Portal", true); drawPortal(); break;
     case SETUP:    header("Setup", true); confirm_ = 0; drawSetup(); break;
+    case UPDATE:   header("Update", true); checked_ = false; drawUpdate(); break;
   }
 }
 
-static const struct { const char* label; uint8_t id; } TILES[8] = {
-  {"Network", 1}, {"Internet", 2}, {"Pipeline", 3}, {"Event log", 4}, {"System", 5}, {"Portal", 7}, {"Setup", 8}, {"Face", 6}};
-static const int NTILES = 8;
+static const struct { const char* label; uint8_t id; } TILES[9] = {
+  {"Network", 1}, {"Internet", 2}, {"Pipeline", 3}, {"Event log", 4}, {"System", 5}, {"Update", 9}, {"Portal", 7}, {"Setup", 8}, {"Face", 6}};
+static const int NTILES = 9;
 // 3 columns x 3 rows of compact tiles (icon left, label right)
 static DebugUI::Rect tileRect(int i) { return {(int16_t)(8 + (i % 3) * 104), (int16_t)(HDR + 8 + (i / 3) * 64), 96, 56}; }
 
@@ -203,13 +220,13 @@ void DebugUI::drawMenu() {
       case 5: iconChip(cx, cy, AMBER); break;
       case 7: iconQr(cx, cy, TXT); break;
       case 8: iconGear(cx, cy, MUTED); break;
+      case 9: iconDownload(cx, cy, ota::available() ? GREEN : CYAN); break;
       case 6: iconFace(cx, cy, AMBER); break;
     }
     tft_.setTextDatum(ML_DATUM); tft_.setTextColor(TXT, CARD);
     tft_.drawString(TILES[i].label, r.x + 50, cy, 2);
+    if (TILES[i].id == 9 && ota::available()) tft_.fillSmoothCircle(r.x + r.w - 10, r.y + 10, 4, GREEN, CARD);   // badge: new version
   }
-  tft_.setTextDatum(BC_DATUM); tft_.setTextColor(MUTED, BG);
-  tft_.drawString("hold BOOT or the screen to leave", SCREEN_W / 2, SCREEN_H - 3, 1);
 }
 
 static const char* rssiLabel(int r) { return r > -55 ? "excellent" : r > -65 ? "good" : r > -75 ? "fair" : "weak"; }
@@ -317,12 +334,12 @@ void DebugUI::drawPipeline() {
   if (lastPreset_ < 0) {
     tft_.setTextDatum(TL_DATUM); tft_.setTextColor(net::connected() ? MUTED : RED, BG);
     tft_.drawString(net::connected() ? "Tap a preset to run the full brain pipeline:" : "Brain not connected - see Network", 12, y, 2);
-    for (int i = 0; i < 5; i++) { char s[64]; snprintf(s, sizeof s, "P%d  %s", i + 1, PRESETS[i]); tft_.setTextColor(TXT, BG); tft_.drawString(s, 12, y + 26 + i * 18, 2); }
+    for (int i = 0; i < 5; i++) { char s[64]; snprintf(s, sizeof s, "P%d  %s", i + 1, PRESETS[i]); tft_.setTextColor(TXT, BG); tft_.drawString(fit(s, 296, 2), 12, y + 26 + i * 18, 2); }
     return;
   }
   // what we sent
   tft_.setTextDatum(TL_DATUM); tft_.setTextColor(MUTED, BG);
-  tft_.drawString(PRESETS[lastPreset_], 12, y, 2); y += 22;
+  tft_.drawString(fit(PRESETS[lastPreset_], 296, 2), 12, y, 2); y += 22;
 
   // turn timeline: 0 -> done, markers for expression / first audio / done
   uint32_t total = t.done ? max<uint32_t>(t.tReply, 1) : max<uint32_t>(millis() - t.t0, 1);
@@ -385,7 +402,7 @@ void DebugUI::drawSystem() {
   pill(VERBOSE, dbg::verbose ? "Verbose ON" : "Verbose off", dbg::verbose ? AMBER : CARD, dbg::verbose ? INK : TXT);
   pill(REBOOT, "Reboot", CARD, RED);
   uint32_t total = ESP.getHeapSize(), freeH = ESP.getFreeHeap();
-  char b[32];
+  char b[64];
   snprintf(b, sizeof b, "%uK", (total - freeH) >> 10);
   gauge(58, HDR + 52, 40, (float)(total - freeH) / total, AMBER, b, "heap used");
   snprintf(b, sizeof b, "%u", fps_);
@@ -399,8 +416,9 @@ void DebugUI::drawSystem() {
   kv(12, y, 300, "Heap", b, TXT); y += 19;
   snprintf(b, sizeof b, "%lus", millis() / 1000);
   kv(12, y, 300, "Uptime", b, TXT); y += 19;
-  kv(12, y, 300, "Build", __DATE__ " " __TIME__, MUTED); y += 19;
-  kv(12, y, 300, "Serial", "expr say look net debug verbose", MUTED);
+  snprintf(b, sizeof b, "%s  (%s)", ota::version(), __DATE__);
+  kv(12, y, 300, "Firmware", b, TXT); y += 19;
+  kv(12, y, 300, "Device", prefs::deviceId(), MUTED);
 }
 
 void DebugUI::drawPortal() {
@@ -414,14 +432,14 @@ void DebugUI::drawPortal() {
   tft_.fillRect(x0 - 6, y0 - 6, size + 12, size + 12, TFT_WHITE);
   if (ok) for (uint8_t y = 0; y < qr.size; y++) for (uint8_t x = 0; x < qr.size; x++)
     if (qrcode_getModule(&qr, x, y)) tft_.fillRect(x0 + x * scale, y0 + y * scale, scale, scale, TFT_BLACK);
-  int tx = x0 + size + 22, y = HDR + 14;
+  int tx = x0 + size + 18, tw = SCREEN_W - tx - 8, y = HDR + 12;
   tft_.setTextDatum(TL_DATUM); tft_.setTextColor(TXT, BG);
-  tft_.drawString("Scan to open", tx, y, 2); y += 18; tft_.drawString("the portal.", tx, y, 2); y += 28;
+  wrap(tx, y, tw, "Scan to open the portal", 2, 2, TXT); y += 40;
   tft_.setTextColor(MUTED, BG); tft_.drawString("Device", tx, y, 1); y += 12;
-  tft_.setTextColor(CYAN, BG); tft_.drawString(prefs::deviceId(), tx, y, 2); y += 24;
+  tft_.setTextColor(CYAN, BG); tft_.drawString(fit(prefs::deviceId(), tw, 2), tx, y, 2); y += 24;
   tft_.setTextColor(MUTED, BG); tft_.drawString("Pairing", tx, y, 1); y += 12;
-  if (net::pairingCode()[0]) { tft_.setTextColor(AMBER, BG); tft_.drawString(net::pairingCode(), tx, y, 4); y += 30; tft_.setTextColor(MUTED, BG); tft_.drawString("enter this in PROFILE > Add a Pixel", tx, y, 1); }
-  else { tft_.setTextColor(GREEN, BG); tft_.drawString(net::connected() ? "paired" : "connecting...", tx, y, 2); y += 22; tft_.setTextColor(MUTED, BG); tft_.drawString("hold BOOT 10 s to reset Wi-Fi + pairing", tx, y, 1); }
+  if (net::pairingCode()[0]) { tft_.setTextColor(AMBER, BG); tft_.drawString(net::pairingCode(), tx, y, 4); y += 30; wrap(tx, y, tw, "PIXELS > Add a Pixel, enter this code", 1, 3, MUTED); }
+  else { tft_.setTextColor(net::connected() ? GREEN : AMBER, BG); tft_.drawString(net::connected() ? "paired" : "connecting...", tx, y, 2); y += 22; wrap(tx, y, tw, "Unpair or reset in Setup", 1, 2, MUTED); }
 }
 
 static const DebugUI::Rect BTN_WIFI{16, HDR + 14, 288, 44};
@@ -434,11 +452,33 @@ void DebugUI::drawSetup() {
   pill(BTN_UNPAIR, confirm_ == 2 ? "TAP AGAIN: UNPAIR" : "Unpair from portal", confirm_ == 2 ? AMBER : CARD, confirm_ == 2 ? INK : TXT);
   pill(BTN_FACTORY, confirm_ == 3 ? "TAP AGAIN: FACTORY RESET" : "Factory reset", confirm_ == 3 ? RED : CARD, confirm_ == 3 ? TFT_WHITE : RED);
   tft_.setTextDatum(TL_DATUM); tft_.setTextColor(MUTED, BG);
-  tft_.drawString("Change Wi-Fi: reboots into setup mode, pairing kept.", 16, HDR + 176, 1);
-  tft_.drawString("Unpair: forgets the pairing token, shows a new code.", 16, HDR + 190, 1);
-  tft_.drawString("Factory reset: forgets Wi-Fi, brain address and pairing.", 16, HDR + 204, 1);
-  char b[64]; snprintf(b, sizeof b, "Wi-Fi: %s   brain: %s", prefs::wifiSsid[0] ? prefs::wifiSsid : "(none)", net::backendHost());
-  tft_.setTextColor(TXT, BG); tft_.drawString(b, 16, SCREEN_H - 16, 1);
+  const char* hint = confirm_ == 1 ? "Reboots into Wi-Fi setup. Pairing is kept." : confirm_ == 2 ? "Forgets the pairing. A new code will show." :
+                     confirm_ == 3 ? "Forgets Wi-Fi, brain address and pairing." : "Tap an action, then tap again to confirm.";
+  tft_.drawString(fit(hint, 288, 2), 16, HDR + 172, 2);
+  char b[96]; snprintf(b, sizeof b, "Wi-Fi %s  -  brain %s", prefs::wifiSsid[0] ? prefs::wifiSsid : "(none)", net::backendHost());
+  tft_.setTextColor(TXT, BG); tft_.drawString(fit(b, 288, 1), 16, SCREEN_H - 11, 1);
+}
+
+static const DebugUI::Rect BTN_CHECK{16, SCREEN_H - 50, 136, 38};
+static const DebugUI::Rect BTN_INSTALL{168, SCREEN_H - 50, 136, 38};
+
+void DebugUI::drawUpdate() {
+  tft_.fillRect(0, HDR + 2, SCREEN_W, SCREEN_H - HDR - 2, BG);
+  char b[96]; int y = HDR + 12;
+  kv(12, y, 296, "Installed", ota::version(), TXT); y += 19;
+  kv(12, y, 296, "Built", __DATE__ " " __TIME__, MUTED); y += 19;
+  const ota::Manifest& m = ota::latest();
+  const char* st = ota::state();
+  if (!strcmp(st, "checking")) kv(12, y, 296, "Latest", "checking...", AMBER);
+  else if (!strcmp(st, "failed")) kv(12, y, 296, "Latest", "last update failed - try again", RED);
+  else if (!m.version[0]) kv(12, y, 296, "Latest", checked_ ? "no release published yet" : "not checked yet", MUTED);
+  else { snprintf(b, sizeof b, "%s%s", m.version, ota::available() ? "  - update available" : "  - you're up to date"); kv(12, y, 296, "Latest", b, ota::available() ? GREEN : TXT); }
+  y += 26;
+  if (m.notes[0]) { Rect nc{12, (int16_t)y, 296, 62}; card(nc, CARD); wrap(nc.x + 10, nc.y + 8, nc.w - 20, m.notes, 2, 3, TXT); }
+  else { tft_.setTextDatum(TL_DATUM); tft_.setTextColor(MUTED, BG); wrap(12, y, 296, "Pixel also checks for updates on its own once a day, and the portal can push one to it.", 2, 3, MUTED); }
+  bool busy = !strcmp(st, "checking") || !strcmp(st, "downloading");
+  pill(BTN_CHECK, busy ? "..." : "Check now", busy ? CARD : AMBER, busy ? MUTED : INK);
+  pill(BTN_INSTALL, ota::available() ? "Install" : "Install", ota::available() && !busy ? GREEN : CARD, ota::available() && !busy ? INK : MUTED);
 }
 
 // =========================================================== input / refresh
@@ -447,7 +487,7 @@ void DebugUI::touch(int16_t x, int16_t y) {
   switch (screen_) {
     case MENU:
       for (int i = 0; i < NTILES; i++)
-        if (tileRect(i).has(x, y)) { if (TILES[i].id == 6) exit(); else show(TILES[i].id == 7 ? PORTAL : TILES[i].id == 8 ? SETUP : (Screen)TILES[i].id); return; }
+        if (tileRect(i).has(x, y)) { if (TILES[i].id == 6) exit(); else show(TILES[i].id == 7 ? PORTAL : TILES[i].id == 8 ? SETUP : TILES[i].id == 9 ? UPDATE : (Screen)TILES[i].id); return; }
       break;
     case INTERNET:
       if (RUN.has(x, y) && !inet_.running) { inet_ = {}; inet_.running = true; inet_.step = 1; drawInternet(); }
@@ -466,6 +506,12 @@ void DebugUI::touch(int16_t x, int16_t y) {
       delay(400); ESP.restart();
       break;
     }
+    case UPDATE:
+      if (BTN_CHECK.has(x, y) && strcmp(ota::state(), "downloading")) {
+        pill(BTN_CHECK, "checking...", CARD, MUTED);
+        ota::Manifest m; ota::check(m); checked_ = true; drawUpdate();
+      } else if (BTN_INSTALL.has(x, y) && ota::available()) { ota::requestInstall(); exit(); }   // main loop draws the progress screen
+      break;
     case SYSTEM:
       if (VERBOSE.has(x, y)) { dbg::verbose = !dbg::verbose; dbg::log("[dbg] verbose %s", dbg::verbose ? "on" : "off"); drawSystem(); }
       else if (REBOOT.has(x, y)) { dbg::log("[dbg] reboot"); delay(200); ESP.restart(); }

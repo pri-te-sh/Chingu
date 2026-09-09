@@ -16,7 +16,7 @@ public:
   void setFps(uint16_t fps) { fps_ = fps; }
 
 private:
-  enum Screen { MENU, NETWORK, INTERNET, PIPELINE, LOG, SYSTEM, PORTAL, SETUP };
+  enum Screen { MENU, NETWORK, INTERNET, PIPELINE, LOG, SYSTEM, PORTAL, SETUP, UPDATE };
 
   // widget kit
   void header(const char* title, bool back);
@@ -24,6 +24,7 @@ private:
   void card(const Rect& r, uint16_t fill);
   void pill(const Rect& r, const char* label, uint16_t fill, uint16_t text, int font = 2);
   void kv(int x, int y, int w, const char* key, const char* val, uint16_t valColor);
+  const char* fit(const char* text, int w, int font);   // truncates with "..." so it never runs off the screen
   void hbar(int x, int y, int w, int h, float frac, uint16_t color);
   void gauge(int cx, int cy, int r, float frac, uint16_t color, const char* big, const char* small);
   void wrap(int x, int y, int w, const char* text, int font, int maxLines, uint16_t color);
@@ -44,9 +45,12 @@ private:
   void drawSystem();
   void drawPortal();
   void drawSetup();
+  void drawUpdate();
+  bool checked_ = false;   // UPDATE: a manifest check ran since the screen opened
   uint8_t confirm_ = 0;   // SETUP: which destructive action is awaiting its second tap
   void iconQr(int cx, int cy, uint16_t c);
   void iconGear(int cx, int cy, uint16_t c);
+  void iconDownload(int cx, int cy, uint16_t c);
 
   TFT_eSPI& tft_;
   bool active_ = false;

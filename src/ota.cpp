@@ -1,0 +1,145 @@
+#include "ota.h"
+#include "log.h"
+#include "net.h"
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
+#include <Update.h>
+#include <Preferences.h>
+#include <ArduinoJson.h>
+#include "mbedtls/sha256.h"
+
+#ifndef PIXEL_FW_VERSION
+#define PIXEL_FW_VERSION "0.0.0"
+#endif
+#ifndef PIXEL_DEVICE_TYPE
+#define PIXEL_DEVICE_TYPE "lite"
+#endif
+
+namespace ota {
+static Manifest latest_;
+static const char* state_ = "idle";
+static uint8_t progress_ = 0;
+static bool available_ = false, pendingValidation_ = false;
+static uint32_t bootMs_ = 0, lastCheck_ = 0;
+static bool installReq_ = false;
+static void (*progressCb_)(uint8_t, const char*) = nullptr;
+static void report(const char* stage) { if (progressCb_) progressCb_(progress_, stage); }
+
+const char* version() { return PIXEL_FW_VERSION; }
+const char* state() { return state_; }
+uint8_t progress() { return progress_; }
+bool available() { return available_; }
+const Manifest& latest() { return latest_; }
+void requestInstall() { installReq_ = true; }
+bool takeInstallRequest() { bool r = installReq_; installReq_ = false; return r; }
+void onProgress(void (*cb)(uint8_t, const char*)) { progressCb_ = cb; }
+uint32_t lastCheckAge() { return lastCheck_ ? millis() - lastCheck_ : 0; }
+
+// "1.2.10" > "1.2.9"
+static int cmpVersion(const char* a, const char* b) {
+  int ai[3] = {0, 0, 0}, bi[3] = {0, 0, 0};
+  sscanf(a, "%d.%d.%d", &ai[0], &ai[1], &ai[2]); sscanf(b, "%d.%d.%d", &bi[0], &bi[1], &bi[2]);
+  for (int i = 0; i < 3; i++) if (ai[i] != bi[i]) return ai[i] < bi[i] ? -1 : 1;
+  return 0;
+}
+
+static String manifestUrl() {
+  return String(net::tls() ? "https" : "http") + "://" + net::backendHost() +
+         ((net::backendPort() == 443 || net::backendPort() == 80) ? "" : ":" + String(net::backendPort())) +
+         "/api/firmware/manifest?device_type=" PIXEL_DEVICE_TYPE "&channel=stable&current=" PIXEL_FW_VERSION;
+}
+
+void begin() {
+  bootMs_ = millis();
+  Preferences p; p.begin("pixel", false);
+  pendingValidation_ = p.getBool("ota_pending", false);
+  p.end();
+  if (pendingValidation_) dbg::log("[ota] booted new firmware %s - waiting for the brain to confirm it works", PIXEL_FW_VERSION);
+}
+
+void markHealthy() {
+  if (!pendingValidation_) return;
+  pendingValidation_ = false;
+  Preferences p; p.begin("pixel", false); p.putBool("ota_pending", false); p.end();
+  dbg::log("[ota] firmware %s confirmed healthy", PIXEL_FW_VERSION);
+}
+
+bool check(Manifest& out) {
+  if (!net::wifiUp()) return false;
+  state_ = "checking";
+  HTTPClient http; WiFiClientSecure sec; WiFiClient plain;
+  sec.setInsecure();
+  http.setTimeout(8000);
+  bool ok = net::tls() ? http.begin(sec, manifestUrl()) : http.begin(plain, manifestUrl());
+  int code = ok ? http.GET() : -1;
+  if (code != 200) { http.end(); state_ = "idle"; dbg::log("[ota] manifest http %d", code); return false; }
+  JsonDocument d;
+  if (deserializeJson(d, http.getStream())) { http.end(); state_ = "idle"; return false; }
+  http.end();
+  out = Manifest();
+  if (!d["version"].is<const char*>()) { state_ = "idle"; available_ = false; return false; }   // no release published
+  strlcpy(out.version, d["version"] | "", sizeof out.version); strlcpy(out.url, d["url"] | "", sizeof out.url);
+  strlcpy(out.sha256, d["sha256"] | "", sizeof out.sha256); strlcpy(out.notes, d["notes"] | "", sizeof out.notes);
+  out.size = d["size"] | 0; out.valid = out.url[0] && strlen(out.sha256) == 64;
+  latest_ = out; lastCheck_ = millis();
+  available_ = out.valid && cmpVersion(out.version, PIXEL_FW_VERSION) > 0;
+  state_ = "idle";
+  dbg::log("[ota] latest %s (have %s) %s", out.version, PIXEL_FW_VERSION, available_ ? "- update available" : "- up to date");
+  return available_;
+}
+
+static void hex(const uint8_t* in, char* out) { for (int i = 0; i < 32; i++) sprintf(out + i * 2, "%02x", in[i]); out[64] = 0; }
+
+bool update(const Manifest& m) {
+  if (!m.valid || !net::wifiUp()) return false;
+  dbg::log("[ota] downloading %s (%u bytes)", m.url, m.size);
+  state_ = "downloading"; progress_ = 0; report("connecting");
+  HTTPClient http; WiFiClientSecure sec; WiFiClient plain;
+  sec.setInsecure(); http.setTimeout(15000);
+  bool ok = String(m.url).startsWith("https") ? http.begin(sec, m.url) : http.begin(plain, m.url);
+  int code = ok ? http.GET() : -1;
+  if (code != 200) { http.end(); state_ = "failed"; dbg::log("[ota] download http %d", code); return false; }
+  int len = http.getSize();
+  if (len <= 0) len = m.size;
+  if (!Update.begin(len)) { http.end(); state_ = "failed"; dbg::log("[ota] not enough space: %s", Update.errorString()); return false; }
+  mbedtls_sha256_context sha; mbedtls_sha256_init(&sha); mbedtls_sha256_starts(&sha, 0);
+  WiFiClient* stream = http.getStreamPtr();
+  uint8_t buf[2048]; int got = 0; uint32_t lastLog = 0;
+  while (http.connected() && got < len) {
+    size_t avail = stream->available();
+    if (!avail) { delay(2); continue; }
+    int n = stream->readBytes(buf, min(avail, sizeof buf));
+    if (n <= 0) break;
+    if (Update.write(buf, n) != (size_t)n) { dbg::log("[ota] write failed: %s", Update.errorString()); Update.abort(); http.end(); state_ = "failed"; return false; }
+    mbedtls_sha256_update(&sha, buf, n);
+    got += n; progress_ = (uint8_t)(got * 100UL / len);
+    if (millis() - lastLog > 700) { lastLog = millis(); dbg::log("[ota] %u%%", progress_); report("downloading"); }
+  }
+  http.end();
+  state_ = "verifying"; report("verifying");
+  uint8_t digest[32]; mbedtls_sha256_finish(&sha, digest); mbedtls_sha256_free(&sha);
+  char hexd[65]; hex(digest, hexd);
+  if (got != len || strcasecmp(hexd, m.sha256) != 0) {
+    dbg::log("[ota] verification FAILED (%d/%d bytes, sha %s)", got, len, strncmp(hexd, m.sha256, 8) ? "mismatch" : "ok"); Update.abort(); state_ = "failed"; return false;
+  }
+  if (!Update.end(true)) { dbg::log("[ota] finalize failed: %s", Update.errorString()); state_ = "failed"; return false; }
+  Preferences p; p.begin("pixel", false); p.putBool("ota_pending", true); p.end();   // next boot must prove itself
+  dbg::log("[ota] verified %s - rebooting into it", m.version); report("rebooting");
+  delay(300);
+  ESP.restart();
+  return true;
+}
+
+void loop() {
+  // self-rollback: a freshly flashed image that cannot reach the brain within 3 minutes is rolled back
+  if (pendingValidation_ && millis() - bootMs_ > 180000) {
+    if (Update.canRollBack()) { dbg::log("[ota] new firmware never reached the brain - rolling back"); Update.rollBack(); delay(200); ESP.restart(); }
+    pendingValidation_ = false;
+  }
+  // daily check once online (first one 90 s after boot)
+  if (net::connected() && (lastCheck_ == 0 ? millis() - bootMs_ > 90000 : millis() - lastCheck_ > 86400000UL)) {
+    Manifest m; check(m);
+  }
+}
+}

@@ -81,10 +81,12 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 - [ ] Provisioning: verify the SoftAP captive portal from a phone (Android + iPhone) — board Setup screen added (Change Wi-Fi / Unpair / Factory reset)
 
 ### P2b — OTA updates
-- [ ] Pixel-Lite partition table → `min_spiffs.csv`; verify current image fits with headroom
-- [ ] Firmware updater: manifest check (boot, daily, on `{"type":"ota"}` push), HTTPS download to inactive slot, SHA-256 verify, reboot, mark-valid after brain connect, rollback otherwise; "updating" face + progress messages
-- [ ] Brain: `firmware_releases` table, `/api/firmware/manifest?device_type=&channel=`, upload endpoint or B2 bucket for binaries
-- [ ] CI (GitHub Actions): build all envs on tag, publish binaries + manifest; portal shows per-Pixel version, channel, Update now, progress
+- [x] Pixel-Lite partition table → `min_spiffs.csv` (two 1.9 MB app slots; image 1.13 MB = 57%); flashed once over USB 2026-09-09
+- [x] Firmware updater `src/ota.*`: manifest check (90 s after boot, daily, on `{"type":"ota"}` push, Update screen "Check now"), download to inactive slot, SHA-256 verify, reboot, mark-healthy on brain `ready`, self-rollback after 3 min otherwise; full-screen progress; `PIXEL_FW_VERSION` in platformio.ini is the version of record (bump it every release)
+- [x] Brain `pixel/firmware.py`: releases on the `firmware` volume, `GET /api/firmware/manifest`, `GET /firmware/{type}/{channel}/{ver}.bin`, portal upload `POST /api/firmware/upload`, `POST /api/pixels/{id}/update` push; `tools/release.sh <ver> "<notes>"` builds + publishes; verified 0.3.0 → 0.3.1 OTA on the board 2026-09-09
+- [x] Portal: PIXELS > FIRMWARE card (releases, publish a .bin), DEVICE tab shows installed/built/latest + UPDATE NOW with progress
+- [ ] CI (GitHub Actions): build on tag, publish binaries to the brain (needs P3 public URL)
+- [x] Device settings pass: 3×3 menu (+ Update tile with badge), every value clipped with "..." (`fit()`), Portal/Setup hints wrapped inside 320×240, System shows firmware + device id instead of the serial cheat-sheet
 
 ### P3 — Cutover to Oracle
 - [ ] Oracle A1 VM (Ubuntu 24.04 arm64), PAYG upgrade, firewall; `bootstrap.sh` (docker, fail2ban, unattended-upgrades, clone, compose up)

@@ -10,8 +10,9 @@ services:
       REDIS_URL: redis://redis:6379/0
       PIXEL_INFERENCE_URL: http://worker:8766
       PIXEL_MODELS_DIR: /models
+      PIXEL_FIRMWARE_DIR: /firmware
     ports: ["8765:8765"]
-    volumes: ["models:/models"]
+    volumes: ["models:/models", "firmware:/firmware"]
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_started }
@@ -70,4 +71,4 @@ services:
     volumes: ["kuma:/app/data"]
     restart: unless-stopped
 
-volumes: { pgdata: {}, redisdata: {}, models: {}, caddydata: {}, caddyconfig: {}, kuma: {} }
+volumes: { pgdata: {}, redisdata: {}, models: {}, firmware: {}, caddydata: {}, caddyconfig: {}, kuma: {} }

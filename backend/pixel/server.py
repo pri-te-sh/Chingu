@@ -16,7 +16,7 @@ import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, RedirectResponse
 
-from . import ambient, auth, bus, config as C, inference, llm, memory, obs, repo, settings, tools
+from . import ambient, auth, bus, config as C, firmware, inference, llm, memory, obs, repo, settings, tools
 from starlette.middleware.sessions import SessionMiddleware
 from .vad import EnergyVAD
 
@@ -24,6 +24,7 @@ obs.setup_logging()
 log = structlog.get_logger("pixel.server")
 
 app = FastAPI(title="pixel-brain")
+app.include_router(firmware.router)
 app.add_middleware(SessionMiddleware, secret_key=auth.SESSION_SECRET, session_cookie="pixel_oauth", same_site="lax", https_only=False)
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 FLUSH = "\x00FLUSH"     # in-band marker: "the model's pre-tool sentence is complete, start the final reply clean"
@@ -309,6 +310,8 @@ async def ws_endpoint(ws: WebSocket):
                     await send_json(ws, type="redeploy", wait_s=msg.get("wait_s", 60)); await ws.close(code=4002)
                 elif msg.get("type") == "unpaired":
                     await send_json(ws, type="unpaired"); await ws.close(code=4004)
+                elif msg.get("type") == "ota":
+                    await send_json(ws, type="ota", version=msg.get("version"))
             await asyncio.sleep(1)
 
     inj = asyncio.create_task(injector())
@@ -341,7 +344,7 @@ async def ws_endpoint(ws: WebSocket):
                 data = json.loads(msg["text"]); t = data.get("type")
                 if t == "ping": await send_json(ws, type="pong", t=time.time())
                 elif t == "status":
-                    sess.status = {k: data.get(k) for k in ("rssi", "heap", "uptime_s", "ip", "fw", "expr", "name", "battery_v", "reset_reason", "fps")}
+                    sess.status = {k: data.get(k) for k in ("rssi", "heap", "uptime_s", "ip", "fw", "build", "ota", "expr", "name", "battery_v", "reset_reason", "fps")}
                     sess.status_at = time.time()
                     if not sess.is_sim:
                         await bus.presence_set(device_id, status=sess.status, connected_at=sess.connected_at, busy=sess.busy)
@@ -604,7 +607,10 @@ async def api_pixels(request: Request):
     for x in px:
         if x["device_id"].startswith("placeholder-"): continue
         pr = present.get(x["device_id"])
-        out.append({"id": x["id"], "device_id": x["device_id"], "device_type": x["device_type"], "name": x["name"], "fw": x.get("fw_version"),
+        lat = await firmware.latest(x["device_type"], x.get("fw_channel") or "stable") if x["device_type"] != "sim" else None
+        out.append({"id": x["id"], "device_id": x["device_id"], "device_type": x["device_type"], "name": x["name"], "fw": x.get("fw_version"), "fw_channel": x.get("fw_channel") or "stable",
+                    "fw_build": ((pr or {}).get("status") or {}).get("build"), "latest_fw": lat and {"version": lat["version"], "notes": lat.get("notes") or "", "created_at": lat.get("created_at")},
+                    "update_available": bool(lat and x.get("fw_version") and firmware.VERSION_RE.match(x["fw_version"]) and firmware.vkey(lat["version"]) > firmware.vkey(x["fw_version"])),
                     "capabilities": x.get("capabilities") or {}, "online": bool(pr), "status": (pr or {}).get("status") or {}, "paired_at": x.get("paired_at"), "last_seen_at": x.get("last_seen_at")})
     return out
 
