@@ -434,7 +434,8 @@ async def api_household_put(request: Request, body: dict):
 async def auth_dev(request: Request, body: dict):
     if not auth.dev_login(body.get("email", ""), body.get("password", "")):
         raise HTTPException(401, "invalid credentials")
-    u = await auth.upsert_user("dev", body["email"].strip().lower(), body["email"].strip().lower(), body.get("name") or body["email"].split("@")[0].title())
+    # the dev provider is ONE local account: changing DEV_LOGIN_EMAIL in .env must not create a second user/household
+    u = await auth.upsert_user("dev", "local-owner", body["email"].strip().lower(), body.get("name") or body["email"].split("@")[0].title())
     tok = await auth.create_session(u["id"])
     resp = Response(content=json.dumps({"ok": True}), media_type="application/json")
     auth.set_cookie(resp, tok, request)
