@@ -1,5 +1,5 @@
 """Runtime configuration, editable from the portal. Stored as config.json; environment gives the defaults."""
-import copy
+import copy, os
 from . import config as C, store
 
 DEFAULTS = {
@@ -7,9 +7,9 @@ DEFAULTS = {
     "owner": "Pritesh",
     "persona": ("warm, playful, a little cheeky, genuinely curious about the owner's day. Concise because you speak aloud: "
                 "usually one or two short sentences, never lists, never markdown, no emojis. Ask a short follow-up question sometimes, not always."),
-    "chat_model": "gemma4:cloud" if "ollama.com" in C.OLLAMA_HOST else C.OLLAMA_MODEL,
+    "chat_model": os.environ.get("PIXEL_DEFAULT_CHAT_MODEL", "gemma4:cloud"),
     "chat_think": False,
-    "memory_model": "deepseek-v4-flash:cloud" if "ollama.com" in C.OLLAMA_HOST else C.OLLAMA_MODEL,
+    "memory_model": os.environ.get("PIXEL_DEFAULT_MEMORY_MODEL", "deepseek-v4-flash:cloud"),
     "memory_think": True,
     "memory_enabled": True,
     "eye_color": "#EBE128",
