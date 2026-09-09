@@ -63,21 +63,55 @@ async def pixel_by_device(device_id: str) -> dict | None:
 async def pixel(pid: int) -> dict | None:
     return await fetch_one(sa.select(m.pixels).where(m.pixels.c.id == pid))
 
+def new_token() -> str: return secrets.token_hex(24)
+
+
 async def get_or_create_pixel(device_id: str, device_type: str = "lite", household_id: int | None = None, capabilities: dict | None = None) -> dict:
+    """Register/refresh a device. household_id=None registers it UNPAIRED (shows a pairing code until claimed)."""
     p = await pixel_by_device(device_id)
     now = dt.datetime.now(dt.timezone.utc)
     if p:
         vals = {"last_seen_at": now}
         if capabilities: vals["capabilities"] = capabilities
         if device_type and device_type != p["device_type"]: vals["device_type"] = device_type
+        if not p.get("pairing_code"): vals["pairing_code"] = new_pairing_code()
         await execute(sa.update(m.pixels).where(m.pixels.c.id == p["id"]).values(**vals))
         return await pixel(p["id"])
-    hid = household_id or (await default_household())["id"]
-    await execute(sa.insert(m.pixels).values(household_id=hid, device_id=device_id, device_type=device_type,
-                                             capabilities=capabilities or {}, pairing_code=new_pairing_code(), last_seen_at=now))
+    await execute(sa.insert(m.pixels).values(household_id=household_id, device_id=device_id, device_type=device_type,
+                                             capabilities=capabilities or {}, pairing_code=new_pairing_code(), last_seen_at=now,
+                                             paired_at=now if household_id else None))
     p = await pixel_by_device(device_id)
     await execute(sa.insert(m.personas).values(pixel_id=p["id"], config={}))
     return p
+
+
+async def pixel_by_code(code: str) -> dict | None:
+    return await fetch_one(sa.select(m.pixels).where(m.pixels.c.pairing_code == code.strip().upper()))
+
+
+async def issue_token(pid: int) -> str:
+    """New device token; only the hash is stored."""
+    tok = new_token()
+    await execute(sa.update(m.pixels).where(m.pixels.c.id == pid).values(token_hash=hash_token(tok)))
+    return tok
+
+
+async def pair(pid: int, household_id: int, name: str | None = None) -> str:
+    vals = {"household_id": household_id, "paired_at": dt.datetime.now(dt.timezone.utc), "pairing_code": None}
+    if name: vals["name"] = name.strip()[:40]
+    await execute(sa.update(m.pixels).where(m.pixels.c.id == pid).values(**vals))
+    return await issue_token(pid)
+
+
+async def unpair(pid: int):
+    await execute(sa.update(m.pixels).where(m.pixels.c.id == pid).values(household_id=None, token_hash=None, paired_at=None, pairing_code=new_pairing_code()))
+
+
+async def delete_pixel(pid: int): await execute(sa.delete(m.pixels).where(m.pixels.c.id == pid))
+
+
+def token_valid(p: dict, token: str | None) -> bool:
+    return bool(token) and bool(p.get("token_hash")) and hash_token(token) == p["token_hash"]
 
 async def pixels_in_household(hid: int) -> list[dict]:
     return await fetch_all(sa.select(m.pixels).where(m.pixels.c.household_id == hid).order_by(m.pixels.c.id))

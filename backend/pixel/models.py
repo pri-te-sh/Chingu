@@ -32,14 +32,14 @@ household_members = sa.Table("household_members", metadata,
 
 pixels = sa.Table("pixels", metadata,
     sa.Column("id", sa.BigInteger, primary_key=True, autoincrement=True),
-    sa.Column("household_id", sa.BigInteger, sa.ForeignKey("households.id", ondelete="CASCADE"), nullable=False),
+    sa.Column("household_id", sa.BigInteger, sa.ForeignKey("households.id", ondelete="CASCADE"), nullable=True),   # NULL = unpaired
     sa.Column("device_id", sa.Text, nullable=False, unique=True),      # stable id from the device (MAC-derived) or "sim-..."
     sa.Column("device_type", sa.Text, nullable=False, server_default="lite"),  # lite | 3s | sim
     sa.Column("name", sa.Text, nullable=False, server_default="Pixel"),
     sa.Column("pairing_code", sa.Text), sa.Column("token_hash", sa.Text),
     sa.Column("capabilities", JSONB, nullable=False, server_default="{}"),
     sa.Column("fw_version", sa.Text), sa.Column("fw_channel", sa.Text, server_default="stable"), sa.Column("reset_reason", sa.Text),
-    _ts("created_at"), sa.Column("last_seen_at", sa.DateTime(timezone=True)))
+    _ts("created_at"), sa.Column("last_seen_at", sa.DateTime(timezone=True)), sa.Column("paired_at", sa.DateTime(timezone=True)))
 
 personas = sa.Table("personas", metadata,
     sa.Column("pixel_id", sa.BigInteger, sa.ForeignKey("pixels.id", ondelete="CASCADE"), primary_key=True),

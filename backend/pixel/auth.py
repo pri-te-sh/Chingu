@@ -81,7 +81,7 @@ async def destroy_session(request: Request):
     await repo.execute(sa.delete(m.sessions).where(m.sessions.c.id == sid))
 
 
-async def current_user(request: Request) -> dict | None:
+async def current_user(request) -> dict | None:
     tok = request.cookies.get(COOKIE)
     if not tok: return None
     try: sid = _signer.loads(tok)

@@ -52,6 +52,8 @@ async def resolve(hid: int, pid: int) -> dict:
         if k in HOUSEHOLD_KEYS and v is not None: cfg[k] = _coerce(k, v)
     for k, v in (await repo.persona(pid)).items():
         if k in PIXEL_KEYS and v is not None: cfg[k] = _coerce(k, v)
+    px = await repo.pixel(pid)
+    if px and px.get("name"): cfg["name"] = px["name"]            # the pixels row is authoritative for the name
     cfg["_household_id"], cfg["_pixel_id"] = hid, pid
     return cfg
 
@@ -65,6 +67,7 @@ async def update(hid: int, pid: int, patch: dict) -> dict:
         elif k in HOUSEHOLD_KEYS: hset[k] = v
         else: pset[k] = v
     if hcols or hset: await repo.update_household(hid, **hcols, settings=hset or None)
+    if "name" in pset: await repo.update_pixel(pid, name=str(pset.pop("name")).strip()[:40])
     if pset: await repo.update_persona(pid, pset)
     return await resolve(hid, pid)
 

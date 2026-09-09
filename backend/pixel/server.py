@@ -203,17 +203,49 @@ async def ws_endpoint(ws: WebSocket):
     await ws.accept()
     try: hello = json.loads(await asyncio.wait_for(ws.receive_text(), timeout=10))
     except Exception: await ws.close(code=4000); return
-    if C.PIXEL_TOKEN and hello.get("token") != C.PIXEL_TOKEN:
-        await ws.close(code=4001); return
-
     device_id = re.sub(r"[^a-z0-9_-]", "", (hello.get("device") or "pixel").lower()) or "pixel"
     device_type = hello.get("device_type") or ("sim" if device_id.startswith("sim") else "lite")
     pixel = await repo.get_or_create_pixel(device_id, device_type, capabilities=hello.get("capabilities") or {})
     if hello.get("fw"): await repo.update_pixel(pixel["id"], fw_version=hello["fw"])
+
+    # ---- pairing ----
+    # sim (browser): auto-pair to the signed-in user's household via the session cookie
+    if device_type == "sim" and not pixel.get("household_id"):
+        user = await auth.current_user(ws)          # WebSocket carries the same cookies
+        hs = await auth.households_for(user["id"]) if user else []
+        if hs:
+            await repo.pair(pixel["id"], hs[0]["id"], name="Simulator"); pixel = await repo.pixel(pixel["id"])
+    paired = bool(pixel.get("household_id"))
+    if paired and not repo.token_valid(pixel, hello.get("token")):
+        if pixel.get("token_hash") is None and device_type != "sim":
+            # grandfathered device (paired before tokens existed): issue its token now
+            tok = await repo.issue_token(pixel["id"])
+            await send_json(ws, type="paired", token=tok, name=pixel["name"])
+            log.info("device.grandfathered", device=device_id)
+        elif device_type != "sim":
+            paired = False                             # wrong/stale token: fall back to pairing
+    if not paired:
+        # stay connected, show the code, wait for the owner to claim us in the portal
+        code = pixel.get("pairing_code") or repo.new_pairing_code()
+        if not pixel.get("pairing_code"): await repo.update_pixel(pixel["id"], pairing_code=code)
+        await send_json(ws, type="pairing", code=code)
+        log.info("device.unpaired", device=device_id, code=code)
+        try:
+            while True:
+                try: msg = await asyncio.wait_for(ws.receive(), timeout=2.0)
+                except asyncio.TimeoutError: msg = None
+                if msg and msg.get("type") == "websocket.disconnect": return
+                for m_ in await bus.inbox_drain(device_id):
+                    if m_.get("type") == "paired":
+                        await send_json(ws, type="paired", token=m_["token"], name=m_.get("name"))
+                        await ws.close(code=4003, reason="paired - reconnect with token"); return
+        except WebSocketDisconnect: return
+
     sess = Session(ws, pixel); sessions[device_id] = sess
     obs.WS_SESSIONS.inc()
     structlog.contextvars.bind_contextvars(pixel=pixel["id"], device=device_id)
     cfg = await settings.resolve(sess.hid, sess.pid)
+    caps = pixel.get("capabilities") or {}
     if not sess.is_sim:
         await bus.presence_set(device_id, pixel_id=sess.pid, household_id=sess.hid, connected_at=time.time(), status={}, busy=False)
         await repo.device_event(sess.pid, "connected", ip=ws.client.host if ws.client else None)
@@ -229,7 +261,7 @@ async def ws_endpoint(ws: WebSocket):
         sess.busy = True
         try:
             cfg = await settings.resolve(sess.hid, sess.pid)
-            turn = await respond(ws, sess, cfg, text)
+            turn = await respond(ws, sess, cfg, text, want_audio=caps.get("speaker", True))
             sess.last_turn = time.time()
             sess.speaking_until = time.time() + turn.get("audio_s", 0) + POST_SPEECH_GUARD_S
             if not sess.is_sim: await bus.presence_set(device_id, last_turn=sess.last_turn)
@@ -275,6 +307,8 @@ async def ws_endpoint(ws: WebSocket):
                     c = await settings.resolve(sess.hid, sess.pid); await ws.send_text(json.dumps(settings.device_config(c)))
                 elif msg.get("type") == "redeploy":
                     await send_json(ws, type="redeploy", wait_s=msg.get("wait_s", 60)); await ws.close(code=4002)
+                elif msg.get("type") == "unpaired":
+                    await send_json(ws, type="unpaired"); await ws.close(code=4004)
             await asyncio.sleep(1)
 
     inj = asyncio.create_task(injector())
@@ -352,10 +386,12 @@ async def scope(request: Request, pixel: int | None = None) -> tuple[dict, dict,
     h = (await repo.household(hs[0]["id"])) if hs else await repo.default_household()
     px = await repo.pixels_in_household(h["id"])
     p = next((x for x in px if x["id"] == pixel), None) if pixel else None
+    if pixel and not p: raise HTTPException(404, "no such pixel in your household")
     if not p:
         p = next((x for x in px if x["device_type"] != "sim"), None) or (px[0] if px else None)
     if not p:
-        p = await repo.get_or_create_pixel("pixel", "lite", household_id=h["id"])
+        # household without any Pixel yet: a placeholder persona holder so settings pages work
+        p = await repo.get_or_create_pixel(f"placeholder-{h['id']}", "sim", household_id=h["id"])
     return h, p, await settings.resolve(h["id"], p["id"])
 
 
@@ -437,7 +473,7 @@ async def auth_logout(request: Request):
 async def portal(): return FileResponse(PORTAL_DIR / "index.html", headers={"Cache-Control": "no-store"})
 
 
-@app.get("/api/status", )
+@app.get("/api/status")
 async def api_status(request: Request, pixel: int | None = None):
     h, p, cfg = await scope(request, pixel)
     tz = cfg["timezone"]; today = memory.today_key(tz)
@@ -458,16 +494,16 @@ async def api_status(request: Request, pixel: int | None = None):
             "summary_today": (await repo.summaries(h["id"])).get(today), "chat_model": cfg["chat_model"], "memory_model": cfg["memory_model"]}
 
 
-@app.get("/api/config", )
+@app.get("/api/config")
 async def api_config(request: Request, pixel: int | None = None):
     _, _, cfg = await scope(request, pixel); return cfg
 
-@app.get("/api/config/defaults", )
+@app.get("/api/config/defaults")
 async def api_config_defaults(request: Request):
     await auth.require_user(request)
     return settings.DEFAULTS
 
-@app.put("/api/config", )
+@app.put("/api/config")
 async def api_config_put(request: Request, patch: dict, pixel: int | None = None):
     h, p, _ = await scope(request, pixel)
     cfg = await settings.update(h["id"], p["id"], patch)
@@ -475,90 +511,152 @@ async def api_config_put(request: Request, patch: dict, pixel: int | None = None
         await bus.inbox_push(x["device_id"], {"type": "config"})
     return cfg
 
-@app.get("/api/models", )
+@app.get("/api/models")
 async def api_models(request: Request):
     await auth.require_user(request)
     try: return {"host": C.OLLAMA_HOST, "models": await llm.list_models()}
     except Exception as e: return {"host": C.OLLAMA_HOST, "models": [], "error": str(e)}
 
-@app.get("/api/prompt", )
+@app.get("/api/prompt")
 async def api_prompt(request: Request, pixel: int | None = None):
     _, _, cfg = await scope(request, pixel); return {"system_prompt": await memory.system_prompt(cfg)}
 
-@app.get("/api/ambient", )
+@app.get("/api/ambient")
 async def api_ambient(request: Request, pixel: int | None = None):
     h, _, _ = await scope(request, pixel); return await repo.ambient_get(h["id"])
 
-@app.post("/api/ambient/refresh", )
+@app.post("/api/ambient/refresh")
 async def api_ambient_refresh(request: Request, pixel: int | None = None):
     _, _, cfg = await scope(request, pixel); return await ambient.refresh(cfg)
 
-@app.get("/api/turns", )
+@app.get("/api/turns")
 async def api_turns(request: Request, day: str | None = None, limit: int = 200, pixel: int | None = None):
     h, _, cfg = await scope(request, pixel)
     rows = await repo.turns(hid=h["id"], limit=limit, day=day, tz=cfg["timezone"])
     for r in rows: r["user"] = r.pop("user_text", None)   # portal compatibility
     return rows
 
-@app.delete("/api/turns/{turn_id}", )
+@app.delete("/api/turns/{turn_id}")
 async def api_turn_delete(request: Request, turn_id: int):
     await auth.require_user(request)
     await repo.delete_turn(turn_id); return {"ok": True}
 
-@app.get("/api/facts", )
+@app.get("/api/facts")
 async def api_facts(request: Request, archived: bool = False, pixel: int | None = None):
     h, _, _ = await scope(request, pixel); return await repo.facts(h["id"], include_archived=archived)
 
-@app.post("/api/facts", )
+@app.post("/api/facts")
 async def api_fact_add(request: Request, body: dict, pixel: int | None = None):
     if not body.get("text"): raise HTTPException(400, "text required")
     h, _, _ = await scope(request, pixel); return await repo.add_fact(h["id"], body["text"], body.get("type", "fact"), pinned=bool(body.get("pinned")))
 
-@app.put("/api/facts/{fid}", )
+@app.put("/api/facts/{fid}")
 async def api_fact_put(request: Request, fid: int, body: dict):
     await auth.require_user(request)
     f = await repo.update_fact(fid, **{k: body.get(k) for k in ("text", "type", "pinned", "archived")})
     if not f: raise HTTPException(404)
     return f
 
-@app.delete("/api/facts/{fid}", )
+@app.delete("/api/facts/{fid}")
 async def api_fact_delete(request: Request, fid: int):
     await auth.require_user(request)
     await repo.delete_fact(fid); return {"ok": True}
 
-@app.post("/api/facts/forget_all", )
+@app.post("/api/facts/forget_all")
 async def api_forget_all(request: Request, pixel: int | None = None):
     h, _, _ = await scope(request, pixel); await repo.forget_all(h["id"]); return {"ok": True}
 
-@app.get("/api/followups", )
+@app.get("/api/followups")
 async def api_followups(request: Request, pixel: int | None = None):
     h, _, _ = await scope(request, pixel); return await repo.followups(h["id"], open_only=False)
 
-@app.put("/api/followups/{fid}", )
+@app.put("/api/followups/{fid}")
 async def api_followup_put(request: Request, fid: int, body: dict):
     await auth.require_user(request)
     await repo.resolve_followup(fid, bool(body.get("done", True))); return {"ok": True}
 
-@app.delete("/api/followups/{fid}", )
+@app.delete("/api/followups/{fid}")
 async def api_followup_delete(request: Request, fid: int):
     await auth.require_user(request)
     await repo.delete_followup(fid); return {"ok": True}
 
-@app.get("/api/summaries", )
+@app.get("/api/summaries")
 async def api_summaries(request: Request, pixel: int | None = None):
     h, _, _ = await scope(request, pixel); return await repo.summaries(h["id"])
 
-@app.post("/api/memory/extract", )
+@app.post("/api/memory/extract")
 async def api_extract_now(request: Request, pixel: int | None = None):
     h, _, cfg = await scope(request, pixel); await memory.extract(cfg); return {"ok": True, "facts": await repo.facts(h["id"])}
 
-@app.post("/api/chat", )
+@app.post("/api/chat")
 async def api_chat(request: Request, body: dict, pixel: int | None = None):
     if not body.get("text"): raise HTTPException(400, "text required")
     h, p, cfg = await scope(request, pixel)
     return await respond(None, None, cfg, body["text"], want_audio=False)
 
-@app.post("/api/admin/drain", )
+@app.get("/api/pixels")
+async def api_pixels(request: Request):
+    h, _, _ = await scope(request)
+    px = await repo.pixels_in_household(h["id"])
+    present = await bus.presence_all([x["device_id"] for x in px])
+    out = []
+    for x in px:
+        if x["device_id"].startswith("placeholder-"): continue
+        pr = present.get(x["device_id"])
+        out.append({"id": x["id"], "device_id": x["device_id"], "device_type": x["device_type"], "name": x["name"], "fw": x.get("fw_version"),
+                    "capabilities": x.get("capabilities") or {}, "online": bool(pr), "status": (pr or {}).get("status") or {}, "paired_at": x.get("paired_at"), "last_seen_at": x.get("last_seen_at")})
+    return out
+
+
+@app.post("/api/pixels/claim")
+async def api_pixels_claim(request: Request, body: dict):
+    """Owner types the code shown on the device -> it joins the household and receives its token."""
+    h, _, _ = await scope(request)
+    code = (body.get("code") or "").strip().upper()
+    p = await repo.pixel_by_code(code) if len(code) == 6 else None
+    if not p: raise HTTPException(404, "no device is showing that code")
+    if p.get("household_id") and p["household_id"] != h["id"]: raise HTTPException(409, "that device belongs to another household")
+    tok = await repo.pair(p["id"], h["id"], name=body.get("name") or ("Pixel-3S" if p["device_type"] == "3s" else "Pixel"))
+    await bus.inbox_push(p["device_id"], {"type": "paired", "token": tok, "name": body.get("name")})
+    await repo.device_event(p["id"], "paired", household=h["id"])
+    log.info("device.paired", device=p["device_id"], household=h["id"])
+    return await repo.pixel(p["id"])
+
+
+@app.patch("/api/pixels/{pid}")
+async def api_pixel_patch(request: Request, pid: int, body: dict):
+    h, _, _ = await scope(request)
+    p = await repo.pixel(pid)
+    if not p or p["household_id"] != h["id"]: raise HTTPException(404)
+    if body.get("name"):
+        await repo.update_pixel(pid, name=body["name"].strip()[:40])
+        await bus.inbox_push(p["device_id"], {"type": "config"})
+    return await repo.pixel(pid)
+
+
+@app.post("/api/pixels/{pid}/revoke")
+async def api_pixel_revoke(request: Request, pid: int):
+    """Un-pair: the device forgets its token and shows a fresh pairing code."""
+    h, _, _ = await scope(request)
+    p = await repo.pixel(pid)
+    if not p or p["household_id"] != h["id"]: raise HTTPException(404)
+    await repo.unpair(pid)
+    await bus.inbox_push(p["device_id"], {"type": "unpaired"})
+    await repo.device_event(pid, "unpaired")
+    return {"ok": True}
+
+
+@app.delete("/api/pixels/{pid}")
+async def api_pixel_delete(request: Request, pid: int):
+    h, _, _ = await scope(request)
+    p = await repo.pixel(pid)
+    if not p or p["household_id"] != h["id"]: raise HTTPException(404)
+    await bus.inbox_push(p["device_id"], {"type": "unpaired"})
+    await repo.delete_pixel(pid)
+    return {"ok": True}
+
+
+@app.post("/api/admin/drain")
 async def api_drain(request: Request):
     await auth.require_user(request)
     n = 0
@@ -566,11 +664,11 @@ async def api_drain(request: Request):
         await bus.inbox_push(d, {"type": "redeploy", "wait_s": 60}); n += 1
     return {"notified": n}
 
-@app.get("/api/device/events", )
+@app.get("/api/device/events")
 async def api_device_events(request: Request, limit: int = 60, pixel: int | None = None):
     _, p, _ = await scope(request, pixel); return await repo.device_events(p["id"], limit)
 
-@app.post("/api/device/say", )
+@app.post("/api/device/say")
 async def api_device_say(request: Request, body: dict, pixel: int | None = None):
     present = await bus.presence_all()
     device = body.get("device") or next(iter(present), None)
