@@ -54,7 +54,16 @@ input[type=checkbox]{width:18px;height:18px;appearance:none;border:3px solid var
 #login{max-width:420px;margin:90px auto}.sw{width:30px;height:30px;border:3px solid var(--shadow);box-shadow:3px 3px 0 var(--shadow);cursor:pointer}
 #theme{font-family:"Press Start 2P";font-size:11px;background:var(--bg2);color:var(--txt);border:3px solid var(--edge);padding:7px 10px;cursor:pointer;box-shadow:3px 3px 0 var(--shadow)}#theme:hover{border-color:var(--amber)}
 .kbd{font-size:17px;color:var(--muted)}
+#splash{position:fixed;inset:0;z-index:50;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;cursor:pointer}
+#splash canvas{width:352px;height:240px;background:#000;border:4px solid var(--edge);box-shadow:6px 6px 0 var(--shadow)}
+#splash .t{font-family:"Press Start 2P";font-size:30px;color:var(--amber);text-shadow:4px 4px 0 var(--shadow);letter-spacing:.08em;min-height:38px}
+#splash .t i{display:inline-block;width:14px;background:var(--amber);height:30px;vertical-align:-4px;animation:blink .6s steps(1) infinite}
+#splash .sub{font-size:20px;color:var(--muted);min-height:24px}
+#splash .lb{display:flex;gap:4px;width:352px}#splash .lb i{flex:1;height:14px;background:var(--edge)}#splash .lb i.f{background:var(--amber)}
+#splash.out{animation:dissolve .5s steps(6) forwards}@keyframes dissolve{to{opacity:0;visibility:hidden}}
+#splash .grid{position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 31px,var(--edge) 31px 32px),repeating-linear-gradient(0deg,transparent 0 31px,var(--edge) 31px 32px);opacity:.18;pointer-events:none}
 </style></head><body>
+<div id="splash" onclick="endSplash(true)"><div class="grid"></div><canvas id="sface" width="44" height="30"></canvas><div class="t" id="stitle"><i></i></div><div class="sub" id="ssub">booting…</div><div class="lb" id="sbar"></div></div>
 <header><h1><canvas id="logo" width="22" height="15" style="width:66px;height:45px"></canvas><span id="title">PIXEL</span></h1>
 <nav id="nav"></nav><div id="chips"><span id="devchip"><i class="led"></i>NO DEVICE</span><span id="modelchip" class="cyan"></span><button id="theme" onclick="toggleTheme()" title="dark / light">☾</button></div></header>
 <main>
@@ -119,7 +128,7 @@ const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];let
 const pages={dashboard:'DASHBOARD',log:'LOG',memory:'MEMORY',brain:'BRAIN',device:'DEVICE'};
 $('#nav').innerHTML=Object.entries(pages).map(([p,l])=>`<button data-p="${p}" onclick="go('${p}')">${l}</button>`).join('');
 function go(p){Object.keys(pages).forEach(x=>{$('#'+x).classList.toggle('on',x===p);document.querySelector(`[data-p=${x}]`).classList.toggle('on',x===p)});history.replaceState(null,'','#'+p);({dashboard:loadStatus,log:loadTurns,memory:loadMemory,brain:loadConfig,device:loadConfig})[p]().catch(()=>{})}
-async function api(path,opt={}){const r=await fetch('/api'+path,{...opt,headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOK}});if(r.status===401){$('#login').style.display='block';throw new Error('auth')}if(!r.ok)throw new Error(await r.text());return r.json()}
+async function api(path,opt={}){const r=await fetch('/api'+path,{...opt,headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOK}});if(r.status===401){endSplash(true);$('#login').style.display='block';throw new Error('auth')}if(!r.ok)throw new Error(await r.text());return r.json()}
 function saveTok(){TOK=$('#tok').value.trim();localStorage.setItem('pixel_token',TOK);$('#login').style.display='none';start()}
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),1600)}
 const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -178,6 +187,16 @@ const M=await api('/models');$('#models-err').textContent=M.error?'could not lis
 async function saveConfig(){const patch={name:$('#c-name').value,owner:$('#c-owner').value,persona:$('#c-persona').value,tone:{cheeky:+$('#c-cheeky').value,chatty:+$('#c-chatty').value},timezone:$('#c-tz').value,history_turns:+$('#c-hist').value,auto_sleep_s:+$('#c-sleep').value,eye_color:$('#c-eye').value.toUpperCase(),chat_model:$('#c-chat').value,memory_model:$('#c-mem').value,chat_think:$('#c-chat-think').checked,memory_think:$('#c-mem-think').checked,memory_enabled:$('#c-mem-on').checked};CFG=await api('/config',{method:'PUT',body:JSON.stringify(patch)});$('#title').textContent=CFG.name.toUpperCase();dirty=false;$$('.dirty').forEach(e=>e.classList.remove('on'));toast('SAVED · PUSHED TO DEVICE');api('/prompt').then(p=>$('#prompt2').textContent=p.system_prompt)}
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue=''}});
 if('scrollRestoration' in history)history.scrollRestoration='manual';
-function start(){api('/config').then(c=>{CFG=c;$('#c-eye').value=c.eye_color}).catch(()=>{});window.scrollTo(0,0);go(location.hash.slice(1)||'dashboard');setInterval(()=>{if($('#dashboard').classList.contains('on'))loadStatus().catch(()=>{})},5000)}
+/* ---------- splash: Pixel wakes up ---------- */
+const SPL={t0:performance.now(),ready:false,done:false,prog:0,steps:['booting…','waking the face…','connecting to the brain…','remembering…','ready.']};
+$('#sbar').innerHTML=Array.from({length:24},()=>'<i></i>').join('');
+SPL.timer=setInterval(splashLoop,40);function splashLoop(){if(SPL.done){clearInterval(SPL.timer);return}const el=(performance.now()-SPL.t0)/1000;const cv=$('#sface');const col=css('--amber');
+ // eyes: closed for .5s, then open with a slow rise, a blink at 1.6s, then look around
+ let b=el<.5?0.08:el<1.0?Math.min(1,(el-.5)*2):el>1.6&&el<1.8?Math.abs(1.7-el)*10:1;const gz=el>2.1?{x:2,y:0}:el>1.9?{x:-2,y:0}:{x:0,y:0};pixFace(cv,col,b,gz);
+ const name=(CFG.name||'PIXEL').toUpperCase();const n=Math.min(name.length,Math.max(0,Math.floor((el-.7)*9)));$('#stitle').innerHTML=name.slice(0,n)+(n<name.length?'<i></i>':'');
+ const target=SPL.ready?1:Math.min(.8,el/2.6);SPL.prog+= (target-SPL.prog)*.15;const k=Math.round(SPL.prog*24);$$('#sbar i').forEach((x,i)=>x.classList.toggle('f',i<k));$('#ssub').textContent=SPL.steps[Math.min(4,Math.floor(SPL.prog*4.99))];
+ if((SPL.ready&&el>2.4&&SPL.prog>.98)||el>6)endSplash()}
+function endSplash(skip){if(SPL.done)return;SPL.done=true;const sp=$('#splash');sp.classList.add('out');setTimeout(()=>sp.remove(),skip?200:520)}
+function start(){api('/config').then(c=>{CFG=c;$('#c-eye').value=c.eye_color;SPL.ready=true}).catch(()=>{SPL.ready=true});window.scrollTo(0,0);go(location.hash.slice(1)||'dashboard');setInterval(()=>{if($('#dashboard').classList.contains('on'))loadStatus().catch(()=>{})},5000)}
 start();
 </script></body></html>
