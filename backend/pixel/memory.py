@@ -146,6 +146,15 @@ def set_summary(day: str, text: str):
 
 
 # ---------- prompt construction ----------
+def gap_minutes() -> float | None:
+    t = last_turn_time()
+    return None if not t else (now_local() - t).total_seconds() / 60
+
+
+def _part_of_day(h: int) -> str:
+    return "early morning" if h < 6 else "morning" if h < 12 else "afternoon" if h < 17 else "evening" if h < 22 else "late night"
+
+
 def _ago(t: dt.datetime | None) -> str:
     if not t:
         return "This is your first ever conversation with them."
@@ -168,15 +177,30 @@ def system_prompt() -> str:
     lines = [
         f"You are {cfg['name']}, a small desk companion robot with an animated face and a voice, living on {cfg['owner']}'s desk.",
         f"Personality: {cfg['persona']}", " ".join(tone),
-        f"Right now it is {now.strftime('%A %-d %B %Y, %-I:%M %p')}. {_ago(last_turn_time())}",
+        f"Right now it is {now.strftime('%A %-d %B %Y, %-I:%M %p')} ({_part_of_day(now.hour)}). {_ago(last_turn_time())}",
     ]
+    gap = gap_minutes()
+    if gap is None or gap > cfg.get("session_gap_min", 30):
+        lines.append(
+            "This is the first exchange after a break, so behave like someone who has been living their own day meanwhile: greet them in a way that fits the time of day "
+            "and how long it has been, and you may bring up ONE thing - an open follow-up, something they mentioned last time, or one item from the world brief - "
+            "then respond to what they actually said. Do not list several things, do not summarise the news.")
     fs = active_facts()
     if fs:
         lines.append(f"\nWhat you know about {cfg['owner']} (use naturally and sparingly, only when relevant - never recite):")
         lines += [f"- {f['text']}" for f in fs]
-    s = summaries().get(today_key())
+    sm = summaries()
+    s = sm.get(today_key())
     if s:
         lines.append(f"\nToday so far: {s}")
+    recent = [(d, sm[d]) for d in sorted(sm, reverse=True) if d != today_key()][:3]
+    if recent:
+        lines.append("\nRecent days:")
+        lines += [f"- {d}: {txt}" for d, txt in recent]
+    from . import ambient
+    amb = ambient.prompt_section()
+    if amb:
+        lines.append(amb)
     fu = followups()
     if fu:
         lines.append("\nThings you meant to ask about when the moment is right:")

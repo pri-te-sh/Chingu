@@ -17,7 +17,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
-from . import config as C, llm, memory, settings, store, stt, tools, tts
+from . import ambient, config as C, llm, memory, settings, store, stt, tools, tts
 from .vad import EnergyVAD
 
 app = FastAPI(title="pixel-brain")
@@ -96,6 +96,7 @@ async def warm():
     await loop.run_in_executor(None, stt.load)
     await loop.run_in_executor(None, tts.load)
     asyncio.create_task(store.commit_loop())
+    ambient.maybe_refresh()
     print("[pixel] models loaded")
 
 
@@ -117,6 +118,7 @@ async def respond(ws: WebSocket | None, device: str, user_text: str, want_audio=
     loop = asyncio.get_running_loop()
     cfg = settings.get()
     t0 = time.time()
+    ambient.maybe_refresh()                      # keep the world brief warm; never blocks this turn
     if ws: await send_json(ws, type="expression", name="thinking", intensity=0.7)
 
     messages = history_for_prompt() + [{"role": "user", "content": user_text}]
@@ -326,6 +328,7 @@ async def ws_endpoint(ws: WebSocket):
                 if t == "ping":
                     await send_json(ws, type="pong", t=time.time())
                 elif t == "status":
+                    ambient.maybe_refresh()          # the board is alive: keep the brief fresh so the next greeting is current
                     sess.status = {k: data.get(k) for k in ("rssi", "heap", "uptime_s", "ip", "fw", "expr", "name")}
                     sess.status_at = time.time()
                     if not is_sim: presence_set(device, status=sess.status, connected_at=sess.connected_at, busy=sess.busy)
@@ -412,6 +415,16 @@ async def api_models():
         return {"host": C.OLLAMA_HOST, "models": await llm.list_models()}
     except Exception as e:
         return {"host": C.OLLAMA_HOST, "models": [], "error": str(e)}
+
+
+@app.get("/api/ambient", dependencies=[Depends(auth)])
+async def api_ambient():
+    return ambient.get()
+
+
+@app.post("/api/ambient/refresh", dependencies=[Depends(auth)])
+async def api_ambient_refresh():
+    await ambient._refresh(); return ambient.get()
 
 
 @app.get("/api/prompt", dependencies=[Depends(auth)])
