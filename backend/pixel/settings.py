@@ -21,7 +21,7 @@ DEFAULTS = {
     "tools_web": True,
     "web_results": 3,
     "tool_narration": True,
-    "location": "Toronto",
+    "location": "Atlanta",
     "interests": "tech, Formula 1, Toronto Raptors",
     "brief_enabled": True,
     "brief_refresh_min": 60,
