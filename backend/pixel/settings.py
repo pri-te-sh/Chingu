@@ -20,13 +20,21 @@ DEFAULTS = {
 }
 
 _cfg: dict | None = None
+_loaded_at = 0.0
+
+
+def reload():
+    global _cfg, _loaded_at
+    _cfg = copy.deepcopy(DEFAULTS)
+    _cfg.update({k: v for k, v in (store.read_json("config.json", {}) or {}).items() if k in DEFAULTS})
+    import time; _loaded_at = time.time()
+    return _cfg
 
 
 def get() -> dict:
-    global _cfg
-    if _cfg is None:
-        _cfg = copy.deepcopy(DEFAULTS)
-        _cfg.update({k: v for k, v in store.read_json("config.json", {}).items() if k in DEFAULTS})
+    import time
+    if _cfg is None or time.time() - _loaded_at > 10:      # other containers may have saved; cheap re-read
+        reload()
     return _cfg
 
 

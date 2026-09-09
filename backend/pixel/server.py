@@ -41,6 +41,40 @@ class Session:
         self.status_at = None
 
 
+PRESENCE_TTL = 90          # s without heartbeat before a device is considered gone
+
+
+def presence_all() -> dict:
+    """Devices connected to ANY container, from the shared store; stale entries dropped."""
+    now = time.time()
+    p = {k: v for k, v in (store.read_json("presence.json", {}) or {}).items() if now - v.get("last_seen", 0) < PRESENCE_TTL}
+    return p
+
+
+def presence_set(device: str, **fields):
+    p = store.read_json("presence.json", {}) or {}
+    p[device] = {**p.get(device, {}), **fields, "last_seen": time.time()}
+    store.write_json("presence.json", p)
+
+
+def presence_clear(device: str):
+    p = store.read_json("presence.json", {}) or {}
+    if device in p:
+        del p[device]; store.write_json("presence.json", p)
+
+
+def inbox_push(device: str, msg: dict):
+    q = store.read_json(f"inbox:{device}", []) or []
+    q.append(msg); store.write_json(f"inbox:{device}", q[-20:])
+
+
+def inbox_drain(device: str) -> list[dict]:
+    q = store.read_json(f"inbox:{device}", []) or []
+    if q:
+        store.write_json(f"inbox:{device}", [])
+    return q
+
+
 def device_event(device: str, event: str, **extra):
     """Connection history: connected / disconnected / heartbeat summary, kept on the volume."""
     row = {"ts": memory.now_local().isoformat(timespec="seconds"), "device": device, "event": event, **extra}
@@ -52,7 +86,8 @@ def device_event(device: str, event: str, **extra):
 async def health():
     cfg = settings.get()
     return {"ok": True, "name": cfg["name"], "chat_model": cfg["chat_model"], "memory_model": cfg["memory_model"],
-            "whisper": C.WHISPER_MODEL, "voice": C.PIPER_VOICE, "devices": list(sessions)}
+            "whisper": C.WHISPER_MODEL, "voice": C.PIPER_VOICE, "devices": list(presence_all()),
+            "store": "modal-dict" if store.USE_DICT else "files"}
 
 
 @app.on_event("startup")
@@ -149,14 +184,13 @@ async def ws_endpoint(ws: WebSocket):
         hello = json.loads(await asyncio.wait_for(ws.receive_text(), timeout=10))
     except Exception:
         await ws.close(code=4000); return
-    ip = ws.client.host if ws.client else "?"
-    if C.PIXEL_TOKEN and (_throttled(ip) or hello.get("token") != C.PIXEL_TOKEN):
-        if not _throttled(ip): _fails.setdefault(ip, []).append(time.time())
+    if C.PIXEL_TOKEN and hello.get("token") != C.PIXEL_TOKEN:
         await ws.close(code=4001); return
 
     device = re.sub(r"[^a-z0-9_-]", "", (hello.get("device") or "pixel").lower()) or "pixel"
     sess = Session(ws, device)
     sessions[device] = sess
+    presence_set(device, connected_at=time.time(), status={}, busy=False)
     device_event(device, "connected", ip=ws.client.host if ws.client else None)
     vad = EnergyVAD()
     loop = asyncio.get_running_loop()
@@ -169,6 +203,7 @@ async def ws_endpoint(ws: WebSocket):
         try:
             await respond(ws, device, text)
             sess.last_turn = time.time()
+            presence_set(device, last_turn=sess.last_turn)
         finally:
             sess.busy = False
 
@@ -183,14 +218,21 @@ async def ws_endpoint(ws: WebSocket):
             return
         await run_turn(text)
 
-    async def injector():                      # portal -> device: "say this to Pixel", config pushes
+    async def injector():                      # portal -> device: "say this", config pushes (via the shared inbox)
+        loop = asyncio.get_running_loop()
         while True:
-            msg = await sess.inject.get()
-            if msg.get("type") == "say":
-                await send_json(ws, type="transcript", text=msg["text"])
-                await run_turn(msg["text"])
-            elif msg.get("type") == "config":
-                await ws.send_text(json.dumps(settings.device_config()))
+            try:
+                msgs = await loop.run_in_executor(None, inbox_drain, device)
+            except Exception as e:
+                print(f"[pixel] inbox error: {e!r}"); msgs = []
+            for msg in msgs:
+                if msg.get("type") == "say":
+                    await send_json(ws, type="transcript", text=msg["text"])
+                    await run_turn(msg["text"])
+                elif msg.get("type") == "config":
+                    settings.reload()
+                    await ws.send_text(json.dumps(settings.device_config()))
+            await asyncio.sleep(1)
 
     inj = asyncio.create_task(injector())
     try:
@@ -213,6 +255,7 @@ async def ws_endpoint(ws: WebSocket):
                 elif t == "status":
                     sess.status = {k: data.get(k) for k in ("rssi", "heap", "uptime_s", "ip", "fw", "expr", "name")}
                     sess.status_at = time.time()
+                    presence_set(device, status=sess.status, connected_at=sess.connected_at, busy=sess.busy)
                     if not getattr(sess, "first_status", False):
                         sess.first_status = True
                         device_event(device, "status", rssi=data.get("rssi"), ip=data.get("ip"), fw=data.get("fw"))
@@ -235,28 +278,15 @@ async def ws_endpoint(ws: WebSocket):
         device_event(device, "disconnected", duration_s=int(time.time() - sess.connected_at), rssi=sess.status.get("rssi"))
         if sessions.get(device) is sess:
             del sessions[device]
+            presence_clear(device)
 
 
 # =============================================================== REST API (portal)
-_fails: dict[str, list[float]] = {}     # ip -> timestamps of failed auths (brute-force throttle for the short token)
-
-
-def _throttled(ip: str) -> bool:
-    now = time.time()
-    _fails[ip] = [t for t in _fails.get(ip, []) if now - t < 600]
-    return len(_fails[ip]) >= 15           # 15 bad tries per 10 min, then locked out for the window
-
-
 def auth(request: Request):
     if not C.PIXEL_TOKEN:
         return
-    ip = request.client.host if request.client else "?"
-    if _throttled(ip):
-        raise HTTPException(429, "too many attempts - try again later")
     tok = request.headers.get("authorization", "").removeprefix("Bearer ").strip() or request.cookies.get("pixel_token")
     if tok != C.PIXEL_TOKEN:
-        if tok:                                # only real guesses count toward the throttle, not "not logged in yet"
-            _fails.setdefault(ip, []).append(time.time())
         raise HTTPException(401, "bad token")
 
 
@@ -275,9 +305,9 @@ async def api_status():
     cfg = settings.get()
     today = memory.today_key()
     return {"name": cfg["name"], "uptime_s": int(time.time() - started_at),
-            "devices": [{"id": d, "connected_s": int(time.time() - s.connected_at), "busy": s.busy,
-                         "last_turn_s": int(time.time() - s.last_turn) if s.last_turn else None,
-                         "status": s.status, "status_age_s": int(time.time() - s.status_at) if s.status_at else None} for d, s in sessions.items()],
+            "devices": [{"id": d, "connected_s": int(time.time() - p.get("connected_at", time.time())), "busy": p.get("busy", False),
+                         "last_turn_s": int(time.time() - p["last_turn"]) if p.get("last_turn") else None,
+                         "status": p.get("status") or {}, "status_age_s": int(time.time() - p["last_seen"])} for d, p in presence_all().items()],
             "turns_today": len(memory.turns(limit=1000, day=today)), "turns_total": len(memory.turns(limit=100000)),
             "facts": len(memory.facts()), "followups": len(memory.followups()),
             "latency": [{k: t.get(k) for k in ("ts", "t_expr", "t_audio", "t_done")} for t in memory.turns(limit=30)],
@@ -297,8 +327,8 @@ async def api_config_defaults():
 @app.put("/api/config", dependencies=[Depends(auth)])
 async def api_config_put(patch: dict):
     cfg = settings.update(patch)
-    for s in sessions.values():
-        s.inject.put_nowait({"type": "config"})
+    for d in presence_all():
+        inbox_push(d, {"type": "config"})
     return cfg
 
 
@@ -406,7 +436,8 @@ async def api_device_events(limit: int = 60):
 
 @app.post("/api/device/say", dependencies=[Depends(auth)])
 async def api_device_say(body: dict):
-    device = body.get("device") or next(iter(sessions), None)
-    if not device or device not in sessions: raise HTTPException(409, "no device connected")
-    sessions[device].inject.put_nowait({"type": "say", "text": body["text"]})
+    present = presence_all()
+    device = body.get("device") or next(iter(present), None)
+    if not device or device not in present: raise HTTPException(409, "no device connected")
+    inbox_push(device, {"type": "say", "text": body["text"]})
     return {"ok": True, "device": device}
