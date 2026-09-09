@@ -55,6 +55,27 @@ class Kokoro(TTS):
             audio, sr = self._m.create(p, voice=voice or self.voices[0], speed=1.05, lang="en-us")
             yield f32_to_pcm(resample(np.asarray(audio, dtype=np.float32), sr, SR))
 
+class Supertonic(TTS):
+    name, note = "supertonic", "Supertonic 3 (99M, onnx, CPU) - flow-matching, 31 languages; steps trade quality for speed"
+    voices = ["F1", "F2", "F3", "F4", "F5", "M1", "M2", "M3", "M4", "M5"]
+    steps = int(os.environ.get("SUPERTONIC_STEPS", "4"))     # 4 steps: ~0.14 RTF at 2 threads; 8 is the library default
+    _m = None; _styles: dict = {}
+    def load(self):
+        if self._m is None:
+            from supertonic import TTS as ST
+            self._m = ST(model_dir=str(MODELS / "supertonic"), intra_op_num_threads=THREADS, inter_op_num_threads=1)
+    def _style(self, v):
+        if v not in self._styles: self._styles[v] = self._m.get_voice_style(v)
+        return self._styles[v]
+    def stream(self, text, voice=None):
+        self.load()
+        import re
+        parts = [p for p in re.split(r"(?<=[.!?;:,])\s+", text.strip()) if p] or [text]
+        for p in parts:
+            audio, dur = self._m.synthesize(p, voice_style=self._style(voice or self.voices[0]), total_steps=self.steps, lang="en", silence_duration=0.05)
+            x = np.asarray(audio, dtype=np.float32).squeeze()
+            yield f32_to_pcm(resample(x, 44100, SR))
+
 class FishSpeech(TTS):
     """OpenAudio S1-mini through the fish-speech API server (run separately, see README). Streams WAV -> PCM."""
     name, note = "fish", "Fish Speech / OpenAudio S1-mini via local API server :8080 - quality reference only, needs a GPU host"
@@ -77,4 +98,4 @@ class FishSpeech(TTS):
                 x = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768
                 if len(x): yield f32_to_pcm(resample(x, 44100, SR))
 
-ENGINES: dict[str, TTS] = {e.name: e for e in [Piper(), Kokoro(), FishSpeech()]}
+ENGINES: dict[str, TTS] = {e.name: e for e in [Piper(), Kokoro(), Supertonic(), FishSpeech()]}

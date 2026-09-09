@@ -21,10 +21,20 @@ First bench on the Mac, all cores, synthetic audio: fw-base 250 ms · fw-small 7
 **STT** (all local, CPU): faster-whisper `base.en` int8 (today) · `small.en` · `distil-small.en` ·
 NVIDIA **Parakeet-TDT 0.6B v2** int8 via onnx-asr (currently #1 open English WER, CPU-friendly) · Moonshine (later, if we need tiny).
 **TTS** (all local): Piper `lessac-medium` (today) · Piper `ryan-high`/`amy-medium` · **Kokoro-82M** (several voices; the likely winner on quality-per-ms) ·
-**Fish Speech / OpenAudio S1-mini** (0.5B, best naturalness + voice cloning; runs via its own API server on MPS — expect RTF ≈ 1, so streaming matters) ·
-Chatterbox (0.5B, expressive; optional).
+**Supertonic 3** (99M, ONNX, CPU-first, 31 languages) · **Fish Speech / OpenAudio S1-mini** and Chatterbox (0.5B class; superb voices but GPU-only in practice — quality references, and a hosting decision if one is wanted).
 **VAD**: energy VAD (today) vs **Silero VAD** (neural, 1 ms per 30 ms frame).
 **Turn-taking**: sentence-chunked TTS streaming (start speaking after the first clause), pre-roll, barge-in, filler while tools run.
+
+## Findings so far (2026-09-09, Mac, 2 threads, typed turns through TALK)
+| TTS | first audio after end of speech | RTF | verdict |
+|---|---|---|---|
+| Piper lessac | ~450 ms | 0.04 | instant, robotic |
+| **Supertonic 3** (4 steps) | ~800–1000 ms | ~0.15 | best speed/quality candidate on CPU; 10 voices (F1–F5, M1–M5) |
+| Kokoro-82M | ~1.7–2.5 s | 0.6–0.7 | fixed ~550 ms per call; int8 is *slower* on this CPU; too slow for 2 vCPU |
+| Chatterbox 0.5B | n/a | 5–6.5 (MPS and CPU alike) | superb voice, needs a CUDA GPU; ~20 s per sentence here |
+STT at 2 threads: Parakeet 0.6B ~250 ms, fw-base ~380 ms, fw-small/distil ~1.1 s. LLM first token (Ollama Cloud Gemma 4): 250–330 ms.
+Whole-turn budget with Parakeet + Gemma 4 + Supertonic ≈ 0.25 + 0.3 + 0.4 ≈ **1.0 s to first word** on this Mac; expect ~1.3 s on the VM.
+Next: listen (`voicelab/results/*_sample.wav`), then tune the chunker so the first clause is spoken sooner, and try 3 steps.
 
 ## The test bed (`voicelab/`, http://localhost:8790)
 1. **HEAR** — talk into the browser mic; live VAD meter (energy vs Silero side by side, false-start counter); the utterance is

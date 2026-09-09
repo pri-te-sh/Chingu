@@ -20,7 +20,7 @@ def wav_bytes(pcm16: bytes) -> bytes:
 async def warm():
     """Load the default engines in the background so the first measured turn is not a model load."""
     def work():
-        for e in (T.ENGINES["piper"], T.ENGINES["kokoro"], S.ENGINES["fw-base"], S.ENGINES["parakeet-0.6b"]):
+        for e in (T.ENGINES["piper"], T.ENGINES["kokoro"], T.ENGINES["supertonic"], S.ENGINES["fw-base"], S.ENGINES["parakeet-0.6b"]):
             try: e.load(); print(f"[warm] {e.name} ready")
             except Exception as ex: print(f"[warm] {e.name} unavailable: {ex}")
         try: V.make("silero"); print("[warm] silero ready")

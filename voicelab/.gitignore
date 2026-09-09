@@ -3,3 +3,4 @@ models/
 results/*.jsonl
 .venv/
 __pycache__/
+results/*.wav
