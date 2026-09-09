@@ -16,6 +16,17 @@ _lock = asyncio.Lock()          # engines are not thread-safe; one inference at 
 def wav_bytes(pcm16: bytes) -> bytes:
     b = io.BytesIO(); sf.write(b, np.frombuffer(pcm16, dtype=np.int16), SR, format="WAV", subtype="PCM_16"); return b.getvalue()
 
+@app.on_event("startup")
+async def warm():
+    """Load the default engines in the background so the first measured turn is not a model load."""
+    def work():
+        for e in (T.ENGINES["piper"], T.ENGINES["kokoro"], S.ENGINES["fw-base"], S.ENGINES["parakeet-0.6b"]):
+            try: e.load(); print(f"[warm] {e.name} ready")
+            except Exception as ex: print(f"[warm] {e.name} unavailable: {ex}")
+        try: V.make("silero"); print("[warm] silero ready")
+        except Exception as ex: print(f"[warm] silero unavailable: {ex}")
+    asyncio.get_running_loop().run_in_executor(None, work)
+
 @app.get("/")
 async def index(): return FileResponse(STATIC / "index.html")
 

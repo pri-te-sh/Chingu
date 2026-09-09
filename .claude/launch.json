@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "voicelab", "runtimeExecutable": "voicelab/.venv/bin/uvicorn", "runtimeArgs": ["voicelab.app:app", "--port", "8790", "--app-dir", "voicelab"], "port": 8790 }
+  ]
+}
