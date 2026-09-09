@@ -163,19 +163,19 @@ header{position:relative}
 
 <!-- PIXELS -->
 <section id="pixels">
-<div class="grid" style="grid-template-columns:300px 1fr">
- <div class="grid" style="gap:14px;align-content:start"><div id="pxcards" class="grid" style="gap:14px"></div>
+<div class="grid" style="grid-template-columns:minmax(0,300px) minmax(0,1fr)">
+ <div class="grid" style="gap:14px;align-content:start;min-width:0"><div id="pxcards" class="grid" style="gap:14px"></div>
   <div class="px card"><h3>ADD A PIXEL</h3>
    <div class="step"><b>1</b><div>Power it on. A new Pixel opens its own Wi-Fi <span class="amber">Pixel-XXXX</span>; join it on your phone and choose your home Wi-Fi in the page that opens.</div></div>
    <div class="step"><b>2</b><div>Once online it shows a <span class="amber">6-character code</span> on its face.</div></div>
    <div class="step" style="border:0"><b>3</b><div>Enter the code here and give it a name.</div></div>
    <div class="row" style="margin-top:10px"><input id="claim-code" placeholder="ABC123" maxlength="6" style="width:140px;font-family:'Press Start 2P';font-size:16px;letter-spacing:.25em;text-transform:uppercase;text-align:center" onkeydown="if(event.key==='Enter')claimPixel()"><input id="claim-name" placeholder="name it" style="flex:1"></div>
    <div style="margin-top:10px"><button class="btn" onclick="claimPixel()">PAIR</button></div></div>
-  <div class="px card"><h3>FIRMWARE</h3><div class="kbd" style="margin-bottom:8px">Publish a build here; every Pixel of that type sees it on its daily check, or push it from its DEVICE tab.</div>
+  <div class="px card" style="min-width:0;overflow:hidden"><h3>FIRMWARE</h3><div class="kbd" style="margin-bottom:8px">Publish a build here; every Pixel of that type sees it on its daily check, or push it from its DEVICE tab.</div>
    <div id="fw-list" class="muted">…</div>
-   <details style="margin-top:10px"><summary class="muted" style="cursor:pointer;font-size:8px">PUBLISH A BUILD</summary>
+   <details style="margin-top:10px"><summary class="muted" style="cursor:pointer">PUBLISH A BUILD</summary>
     <div class="row" style="margin-top:8px"><select id="fw-type" style="width:110px"><option value="lite">Pixel-Lite</option><option value="3s">Pixel-3S</option></select><input id="fw-ver" placeholder="0.3.1" style="width:90px"></div>
-    <input id="fw-notes" placeholder="what changed" style="margin-top:8px"><input type="file" id="fw-file" accept=".bin" style="margin-top:8px;font-size:12px">
+    <input id="fw-notes" placeholder="what changed" style="margin-top:8px"><input type="file" id="fw-file" accept=".bin" style="margin-top:8px;font-size:12px;width:100%;box-sizing:border-box">
     <div style="margin-top:8px"><button class="btn sm" onclick="publishFw()">PUBLISH</button><span class="muted" style="margin-left:8px;font-size:8px">.pio/build/cyd32/firmware.bin</span></div></details></div></div>
  <div id="pxdetail"><div class="px card"><div class="empty">select a Pixel on the left</div></div></div>
 </div></section>
@@ -323,7 +323,7 @@ async function watchUpdate(id,target){const t0=Date.now();const tick=async()=>{i
  if(p&&p.fw===target&&p.online){toast('UPDATED TO '+target);loadPixelsPage();return}
  if(el)el.textContent=st==='downloading'?'downloading…':st==='verifying'?'verifying…':!p?.online?'restarting…':'waiting for the Pixel…';
  if(Date.now()-t0<240e3)setTimeout(tick,3000);else{if(el)el.textContent='no confirmation yet - check the device';loadPixelsPage()}};setTimeout(tick,3000)}
-async function loadFirmware(){const el=$('#fw-list');if(!el)return;try{const R=await api('/firmware/releases');el.innerHTML=R.length?R.map(r=>`<div style="display:flex;gap:8px;align-items:center;padding:4px 0;border-bottom:2px dashed var(--edge)"><span class="cyan">${esc(r.version)}</span><span class="muted">${typeName(r.device_type)} · ${Math.round(r.size/1024)}K · ${esc(String(r.created_at||'').slice(0,10))}</span><span class="muted" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.notes||'')}</span><button class="btn ghost sm" onclick="deleteFw(${r.id},'${esc(r.version)}')">✕</button></div>`).join(''):'nothing published yet'}catch(e){el.textContent='could not load releases'}}
+async function loadFirmware(){const el=$('#fw-list');if(!el)return;try{const R=await api('/firmware/releases');el.innerHTML=R.length?R.map(r=>`<div style="padding:6px 0;border-bottom:2px dashed var(--edge)"><div style="display:flex;gap:8px;align-items:center"><span class="cyan">${esc(r.version)}</span><span class="muted" style="flex:1;min-width:0">${typeName(r.device_type)} · ${Math.round(r.size/1024)}K · ${esc(String(r.created_at||'').slice(0,10))}</span><button class="btn ghost sm" onclick="deleteFw(${r.id},'${esc(r.version)}')">✕</button></div>${r.notes?`<div class="muted" style="margin-top:4px;overflow-wrap:anywhere">${esc(r.notes)}</div>`:''}</div>`).join(''):'nothing published yet'}catch(e){el.textContent='could not load releases'}}
 async function deleteFw(id,v){if(!confirm(`Delete release ${v}? Pixels already on it are unaffected.`))return;await api('/firmware/releases/'+id,{method:'DELETE'});loadFirmware();loadPixels()}
 async function publishFw(){const f=$('#fw-file').files[0],v=$('#fw-ver').value.trim();if(!f)return toast('CHOOSE THE .BIN FILE');if(!/^\d+\.\d+\.\d+$/.test(v))return toast('VERSION LIKE 0.3.1');const fd=new FormData();fd.append('file',f);fd.append('version',v);fd.append('device_type',$('#fw-type').value);fd.append('notes',$('#fw-notes').value.trim());
  const r=await fetch('/api/firmware/upload',{method:'POST',body:fd,credentials:'same-origin',headers:{'X-Requested-With':'pixel'}});if(!r.ok){toast((await r.text()).replace(/.*detail":"|"}$/g,'').toUpperCase());return}toast('PUBLISHED '+v);$('#fw-ver').value='';$('#fw-notes').value='';$('#fw-file').value='';loadFirmware();loadPixelsPage()}
