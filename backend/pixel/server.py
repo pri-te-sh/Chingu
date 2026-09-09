@@ -39,9 +39,15 @@ class Session:
         self.busy = False
         self.status: dict = {}          # last heartbeat from the board (rssi, heap, uptime, ip, fw, expr)
         self.status_at = None
+        self.turn_task: asyncio.Task | None = None
+        self.speaking_until = 0.0       # server-side estimate of when the client's speaker goes quiet
+        self.audio_s_sent = 0.0
 
 
 PRESENCE_TTL = 90          # s without heartbeat before a device is considered gone
+STT_JUNK = {"thank you.", "thank you", "thanks.", "you", "you.", "bye.", "bye", ".", "thank you for watching.", "thanks for watching.", "hmm.", "uh.", "okay.", "so."}
+MIN_UTTERANCE_S = 0.4
+POST_SPEECH_GUARD_S = 0.4
 
 
 def presence_all() -> dict:
@@ -136,10 +142,12 @@ async def respond(ws: WebSocket | None, device: str, user_text: str, want_audio=
         text = text.strip()
         if not text or not ws or not want_audio:
             return
+        await asyncio.sleep(0)                   # cancellation point between sentences
         if not speech_started:
             await send_json(ws, type="speech_start", sr=C.SAMPLE_RATE)
             speech_started = True
             t_audio = time.time() - t0
+            if device in sessions: sessions[device].speaking_until = time.time() + 30   # refined when the turn ends / client reports
         chunks = await loop.run_in_executor(None, lambda: list(tts.synthesize(text)))
         pcm = b"".join(chunks)
         audio_bytes += len(pcm)
@@ -273,25 +281,55 @@ async def ws_endpoint(ws: WebSocket):
     await ws.send_text(json.dumps(settings.device_config()))
     was_speaking = False
 
-    async def run_turn(text: str):
+    async def _turn(text: str):
         sess.busy = True
         try:
-            await respond(ws, device, text)
+            turn = await respond(ws, device, text)
             sess.last_turn = time.time()
+            # assume the client needs audio_s to play what we sent, plus a guard, before its mic is trustworthy
+            sess.speaking_until = time.time() + turn.get("audio_s", 0) + POST_SPEECH_GUARD_S
             if not is_sim: presence_set(device, last_turn=sess.last_turn)
+        except asyncio.CancelledError:
+            print(f"[pixel] {device}: turn cancelled (new utterance)")
+            try:
+                await send_json(ws, type="speech_cancel")
+                await send_json(ws, type="expression", name="listening", intensity=0.8)
+            except Exception:
+                pass
+            raise
         finally:
             sess.busy = False
 
+    async def run_turn(text: str):
+        """One turn at a time: a new utterance cancels whatever is still being generated or spoken."""
+        if sess.turn_task and not sess.turn_task.done():
+            sess.turn_task.cancel()
+            try: await sess.turn_task
+            except (asyncio.CancelledError, Exception): pass
+        sess.speaking_until = 0.0
+        vad.reset()
+        sess.turn_task = asyncio.create_task(_turn(text))
+        try:
+            await sess.turn_task
+        except asyncio.CancelledError:
+            pass
+
+    def mic_gated() -> bool:
+        return time.time() < sess.speaking_until
+
     async def handle_utterance(pcm: bytes):
+        if len(pcm) < MIN_UTTERANCE_S * C.SAMPLE_RATE * 2:
+            return
         await send_json(ws, type="expression", name="thinking", intensity=0.5)
         t = time.time()
         text = await loop.run_in_executor(None, stt.transcribe, pcm)
         print(f"[pixel] stt {time.time() - t:.2f}s: {text!r}")
-        await send_json(ws, type="transcript", text=text)
-        if len(text.strip()) < 2:
-            await send_json(ws, type="expression", name="curious", intensity=0.5)
+        if len(text.strip()) < 2 or text.strip().lower() in STT_JUNK:
+            await send_json(ws, type="expression", name="curious", intensity=0.4)
             return
-        await run_turn(text)
+        await send_json(ws, type="transcript", text=text)
+        # do not block the receive loop: the turn runs as a task so a follow-up utterance can cancel it
+        asyncio.create_task(run_turn(text))
 
     async def injector():                      # portal -> device: "say this", config pushes (via the shared inbox)
         loop = asyncio.get_running_loop()
@@ -303,7 +341,7 @@ async def ws_endpoint(ws: WebSocket):
             for msg in msgs:
                 if msg.get("type") == "say":
                     await send_json(ws, type="transcript", text=msg["text"])
-                    await run_turn(msg["text"])
+                    asyncio.create_task(run_turn(msg["text"]))
                 elif msg.get("type") == "config":
                     settings.reload()
                     await ws.send_text(json.dumps(settings.device_config()))
@@ -314,6 +352,8 @@ async def ws_endpoint(ws: WebSocket):
         while True:
             msg = await ws.receive()
             if msg.get("bytes") is not None:
+                if mic_gated():                          # our own voice is (probably) coming out of the speaker
+                    vad.reset(); continue
                 utt = vad.feed(msg["bytes"])
                 if vad.speaking != was_speaking:
                     was_speaking = vad.speaking
@@ -327,6 +367,13 @@ async def ws_endpoint(ws: WebSocket):
                 t = data.get("type")
                 if t == "ping":
                     await send_json(ws, type="pong", t=time.time())
+                elif t == "playback_end":                 # client speaker is quiet: trust the mic again after a short guard
+                    sess.speaking_until = time.time() + POST_SPEECH_GUARD_S
+                    vad.reset()
+                elif t == "interrupt":                    # user tapped: stop talking, listen
+                    if sess.turn_task and not sess.turn_task.done():
+                        sess.turn_task.cancel()
+                    sess.speaking_until = 0.0; vad.reset()
                 elif t == "status":
                     ambient.maybe_refresh()          # the board is alive: keep the brief fresh so the next greeting is current
                     sess.status = {k: data.get(k) for k in ("rssi", "heap", "uptime_s", "ip", "fw", "expr", "name")}
@@ -340,7 +387,7 @@ async def ws_endpoint(ws: WebSocket):
                     if utt: await handle_utterance(utt)
                 elif t == "text":
                     await send_json(ws, type="transcript", text=data["text"])
-                    await run_turn(data["text"])
+                    asyncio.create_task(run_turn(data["text"]))
             elif msg.get("type") == "websocket.disconnect":
                 break
     except WebSocketDisconnect:

@@ -115,11 +115,11 @@ input[type=checkbox]{width:18px;height:18px;appearance:none;border:3px solid var
 <!-- SIMULATOR -->
 <section id="sim"><div class="grid g21">
  <div class="px card" style="text-align:center"><h3 style="text-align:left">VIRTUAL PIXEL · FULL PIPELINE</h3>
-  <canvas id="simface" width="44" height="30" style="width:440px;height:300px;max-width:100%;background:#000;border:4px solid var(--edge);box-shadow:4px 4px 0 var(--shadow)"></canvas>
+  <canvas id="simface" width="44" height="30" title="tap to interrupt Pixel" onclick="simInterrupt()" style="width:440px;height:300px;max-width:100%;background:#000;border:4px solid var(--edge);box-shadow:4px 4px 0 var(--shadow);cursor:pointer"></canvas>
   <div class="row" style="justify-content:center;margin-top:14px"><span class="tag expr" id="sim-expr">neutral</span><span class="tag" id="sim-state">disconnected</span></div>
   <div class="bar" id="sim-level" style="width:260px;margin:14px auto 0"></div>
   <div class="row" style="justify-content:center;margin-top:16px"><button class="btn" id="sim-ptt" onmousedown="simHold(true)" onmouseup="simHold(false)" onmouseleave="simHold(false)" ontouchstart="event.preventDefault();simHold(true)" ontouchend="simHold(false)">HOLD TO TALK</button><button class="btn cyan" id="sim-live" onclick="simLive()">ALWAYS LISTENING</button><button class="btn ghost" onclick="simStop()">STOP</button></div>
-  <div class="kbd" style="margin-top:10px">Same WebSocket protocol as the board · 16 kHz PCM both ways · this is what the mic and speaker will do</div></div>
+  <div class="kbd" style="margin-top:10px">Same protocol as the board · mic is muted while Pixel speaks (no self-listening) · a new question cancels the previous answer · tap the face to interrupt</div></div>
  <div class="grid" style="gap:22px;align-content:start">
   <div class="px card"><h3>LAST TURN</h3><div id="sim-heard" class="muted">say something…</div><div id="sim-reply" style="margin-top:8px"></div><div class="row" style="margin-top:10px;font-size:18px"><span class="amber" id="sim-t1"></span><span class="cyan" id="sim-t2"></span><span class="green" id="sim-t3"></span></div></div>
   <div class="px card"><h3>EVENTS</h3><pre id="sim-log" class="term" style="max-height:300px;font-size:17px"></pre></div>
@@ -263,7 +263,11 @@ async function saveConfig(){const patch={name:$('#c-name').value,owner:$('#c-own
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue=''}});
 if('scrollRestoration' in history)history.scrollRestoration='manual';
 /* ---------- simulator: browser = device ---------- */
-const SIM={ws:null,ac:null,mic:null,proc:null,src:null,live:false,hold:false,playT:0,expr:'neutral',mouth:0,blinkT:0,gaze:{x:0,y:0},level:0,t0:0,speaking:false,timer:null};
+const SIM={ws:null,ac:null,mic:null,proc:null,src:null,live:false,hold:false,playT:0,expr:'neutral',mouth:0,blinkT:0,gaze:{x:0,y:0},level:0,t0:0,speaking:false,timer:null,sources:[],playing:false,quietAt:0};
+function simPlaying(){const ac=SIM.ac;return !!ac&&ac.currentTime<SIM.playT}
+function simMicOpen(){return !simPlaying()&&performance.now()>SIM.quietAt}
+function simFlushAudio(){SIM.sources.forEach(s=>{try{s.stop()}catch(e){}});SIM.sources=[];SIM.playT=0;SIM.mouth=0;SIM.quietAt=performance.now()+400}
+function simInterrupt(){if(SIM.ws&&SIM.ws.readyState===1){SIM.ws.send(JSON.stringify({type:'interrupt'}))}simFlushAudio();simLog('interrupted');simState(SIM.live?'listening':'ready')}
 const EXPR={neutral:{eh:9,g:[0,0],m:0},happy:{eh:7,g:[0,0],m:1},excited:{eh:10,g:[0,-1],m:2},love:{eh:8,g:[0,0],m:1},curious:{eh:10,g:[2,-1],m:3},thinking:{eh:7,g:[2,-2],m:0},listening:{eh:11,g:[0,0],m:0},surprised:{eh:12,g:[0,0],m:3},suspicious:{eh:5,g:[-2,0],m:-1},annoyed:{eh:5,g:[0,0],m:-1},sad:{eh:7,g:[0,1],m:-1},sleepy:{eh:3,g:[0,1],m:0},asleep:{eh:1,g:[0,0],m:0}};
 function simFace(){const cv=$('#simface');if(!cv)return;const x=cv.getContext('2d'),W=44,H=30,col=moodTint(SIM.expr)||CFG.eye_color||'#EBE128',e=EXPR[SIM.expr]||EXPR.neutral;x.fillStyle='#000';x.fillRect(0,0,W,H);x.fillStyle=col;
  SIM.blinkT++;let b=1;if(SIM.blinkT>140){if(SIM.blinkT>146)SIM.blinkT=0;else b=Math.abs(143-SIM.blinkT)/3}
@@ -284,16 +288,16 @@ function simConnect(){const url=(location.protocol==='https:'?'wss://':'ws://')+
   else if(d.type==='expression'){SIM.expr=d.name;$('#sim-expr').textContent=d.name+' '+d.intensity;if(d.name!=='thinking'&&SIM.t0)$('#sim-t1').textContent='face '+Math.round(performance.now()-SIM.t0)+'ms';simLog('expression '+d.name+' '+d.intensity)}
   else if(d.type==='speech_start'){SIM.playT=0;if(SIM.t0)$('#sim-t2').textContent='voice '+Math.round(performance.now()-SIM.t0)+'ms';simLog('voice starts')}
   else if(d.type==='speech_end'){simLog('voice done')}
+  else if(d.type==='speech_cancel'){simFlushAudio();simLog('answer cancelled - new question');}
   else if(d.type==='reply'){$('#sim-reply').innerHTML='<span class="amber">'+esc(CFG.name||'Pixel')+':</span> '+esc(d.text);if(SIM.t0)$('#sim-t3').textContent='done '+Math.round(performance.now()-SIM.t0)+'ms';simLog('reply: '+d.text);simState(SIM.live?'listening':'ready')}
   else if(d.type==='tool'){simLog('🔧 '+d.name+' '+JSON.stringify(d.args));simState('looking it up…')}
   else if(d.type==='step'){simLog('💬 '+d.text);$('#sim-reply').innerHTML+=`<div class="muted">${esc(d.text)}</div>`}
   else if(d.type==='error'){simLog('ERROR '+d.message)}}}
 function simAudio(){if(!SIM.ac){SIM.ac=new (window.AudioContext||window.webkitAudioContext)({sampleRate:16000})}if(SIM.ac.state==='suspended')SIM.ac.resume();return SIM.ac}
-function simPlay(buf){const ac=simAudio();const i16=new Int16Array(buf);const f=new Float32Array(i16.length);for(let i=0;i<i16.length;i++)f[i]=i16[i]/32768;const ab=ac.createBuffer(1,f.length,16000);ab.copyToChannel(f,0);const src=ac.createBufferSource();src.buffer=ab;src.connect(ac.destination);const t=Math.max(ac.currentTime+0.05,SIM.playT);src.start(t);SIM.playT=t+ab.duration;SIM.mouth=1;
- // keep the mouth moving while audio is scheduled
- const end=SIM.playT;const tick=setInterval(()=>{if(ac.currentTime<end)SIM.mouth=Math.max(SIM.mouth,0.6);else clearInterval(tick)},80)}
+function simPlay(buf){const ac=simAudio();const i16=new Int16Array(buf);const f=new Float32Array(i16.length);for(let i=0;i<i16.length;i++)f[i]=i16[i]/32768;const ab=ac.createBuffer(1,f.length,16000);ab.copyToChannel(f,0);const src=ac.createBufferSource();src.buffer=ab;src.connect(ac.destination);const t=Math.max(ac.currentTime+0.05,SIM.playT);src.start(t);SIM.playT=t+ab.duration;SIM.mouth=1;SIM.sources.push(src);if(SIM.sources.length>200)SIM.sources.splice(0,100);SIM.playing=true;simState('speaking…');
+ if(!SIM.playTick)SIM.playTick=setInterval(()=>{if(!SIM.ac)return;if(SIM.ac.currentTime<SIM.playT){SIM.mouth=Math.max(SIM.mouth,0.6)}else if(SIM.playing){SIM.playing=false;SIM.quietAt=performance.now()+400;SIM.sources=[];if(SIM.ws&&SIM.ws.readyState===1)SIM.ws.send(JSON.stringify({type:'playback_end'}));simState(SIM.live?'listening':'ready')}},80)}
 async function simMic(){if(SIM.mic)return true;try{const ac=simAudio();const stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});SIM.mic=stream;SIM.src=ac.createMediaStreamSource(stream);const proc=ac.createScriptProcessor(1024,1,1);SIM.proc=proc;const ratio=ac.sampleRate/16000;
- proc.onaudioprocess=e=>{if(!(SIM.live||SIM.hold)||!SIM.ws||SIM.ws.readyState!==1)return;const inp=e.inputBuffer.getChannelData(0);const n=Math.floor(inp.length/ratio);const out=new Int16Array(n);let peak=0;for(let i=0;i<n;i++){const v=inp[Math.floor(i*ratio)];peak=Math.max(peak,Math.abs(v));out[i]=Math.max(-32768,Math.min(32767,Math.round(v*32767)))}SIM.level=peak;SIM.ws.send(out.buffer)};
+ proc.onaudioprocess=e=>{if(!(SIM.live||SIM.hold)||!SIM.ws||SIM.ws.readyState!==1)return;if(!SIM.hold&&!simMicOpen()){SIM.level=0;return}const inp=e.inputBuffer.getChannelData(0);const n=Math.floor(inp.length/ratio);const out=new Int16Array(n);let peak=0;for(let i=0;i<n;i++){const v=inp[Math.floor(i*ratio)];peak=Math.max(peak,Math.abs(v));out[i]=Math.max(-32768,Math.min(32767,Math.round(v*32767)))}SIM.level=peak;SIM.ws.send(out.buffer)};
  SIM.src.connect(proc);proc.connect(ac.destination);setInterval(()=>{const k=Math.round(Math.min(1,SIM.level*3)*20);$('#sim-level').innerHTML=Array.from({length:20},(_,i)=>`<i class="${i<k?(SIM.speaking?'a':'c'):''}"></i>`).join('');SIM.level*=0.7},60);return true}catch(e){simLog('microphone blocked: '+e.message);return false}}
 async function simHold(down){if(down){if(!await simMic())return;if(!SIM.ws)simConnect();SIM.hold=true;$('#sim-ptt').classList.add('cyan');simState('hearing you… (release to send)')}else if(SIM.hold){SIM.hold=false;$('#sim-ptt').classList.remove('cyan');if(SIM.ws&&SIM.ws.readyState===1)SIM.ws.send(JSON.stringify({type:'end'}));SIM.t0=performance.now();simState('transcribing…')}}
 async function simLive(){if(SIM.live){SIM.live=false;$('#sim-live').textContent='ALWAYS LISTENING';simState('ready');return}if(!await simMic())return;if(!SIM.ws)simConnect();SIM.live=true;$('#sim-live').textContent='■ LISTENING (click to stop)';simState('listening');simLog('always-listening on: speak, pause, Pixel answers')}
