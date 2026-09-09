@@ -17,6 +17,10 @@ Last updated: 2026-09-09._
 | D8 | **Camera: all in** — presence, face detection/tracking, face recognition (owner vs known people), "look at this" snapshots to the cloud vision model. Portal toggles + on-face indicator whenever the camera is active. Recognition embeddings stored per household; raw frames not retained beyond the request. |
 | D9 | **Docs**: work only on Pixel-Lite until the 3S hardware arrives; download the Waveshare 3.5B pack then. |
 | D10 | Device access code stays **device-only** (6 chars, shown on the device). Becomes the **pairing code**. |
+| D11 | **Provisioning**: no secrets baked into firmware. First boot (or long-press reset) → device opens a SoftAP captive portal `Pixel-XXXX` (works from any phone), user picks home Wi-Fi; brain URL defaults to the platform domain (editable for dev/self-host). Device then connects **unpaired**, shows its pairing code on the face; owner claims it in the portal → brain issues a **per-device token** (NVS, rotatable, revocable). Also an **ESP Web Tools** page in the portal for first-time flashing over USB from Chrome. |
+| D12 | **OTA**: HTTPS pull with rollback. Brain serves signed-by-hash manifests per `device_type` × `channel` (stable/beta); device checks on boot + daily + on push, downloads to the inactive slot, verifies SHA-256, reboots, and marks the image valid only after a successful brain connection (else auto-rollback). Firmware built by CI on tags, uploaded with the manifest. Portal shows version per Pixel, Update now, channel, progress. Pixel-Lite uses the `min_spiffs` partition table (2 × 1.9 MB app slots on 4 MB flash). |
+| D13 | **Telemetry**: device heartbeat grows (fw version, reset reason, min heap, fps, RSSI, reconnects, audio under/overruns, battery); device log ring shipped to the brain on request or on error (never audio/transcripts); crash reason + backtrace uploaded on the boot after a panic. Brain: structured JSON logs with turn/pixel ids, per-stage latency (stt / llm-first-token / tts-first-audio / done) and error counters stored per turn and rolled up; `/metrics` (Prometheus format) for later Grafana; **HEALTH** portal page per Pixel and for the brain. Optional Sentry/GlitchTip via env. Retention: device logs 14 d, events 90 d, turns until the owner deletes. |
+| D14 | **Secrets & tokens**: device tokens hashed at rest; portal sessions server-side; all secrets in `.env`; tokens redacted from every log line. |
 
 ## Architecture (target)
 
@@ -42,6 +46,8 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 - `ambient` (household_id, ts, brief jsonb)
 - `plant_nodes` (id, household_id, name, token_hash) · `plant_readings` (node_id, ts, moisture, soil_temp, air_temp, rh, lux, co2)
 - `faces` (id, household_id, label, embedding, created_at) — for D8
+- `firmware_releases` (id, device_type, channel, version, url, sha256, size, min_version, notes, created_at) · `pixels.fw_version`, `pixels.fw_channel`, `pixels.reset_reason`
+- `device_logs` (pixel_id, ts, level, line) — 14-day retention · `turn_metrics` rollups (pixel_id, hour, p50/p95 per stage, errors, tool_calls)
 
 ## Phases & tasks
 
@@ -51,6 +57,7 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 - [ ] Store layer: replace `store.py` JSON/Dict with repository functions over Postgres; Redis for presence/inbox/pubsub
 - [ ] One-shot importer: Modal Dict → Postgres (facts, follow-ups, summaries, turns, events, config → persona)
 - [ ] Worker process: STT/TTS over a local queue (Redis) so inference never blocks the WS loop
+- [ ] Structured JSON logging (structlog) with pixel/turn ids; per-stage latency + error counters recorded per turn; `/metrics` endpoint
 - [ ] pytest suite (store, memory scoping, protocol) runnable in Compose
 - [ ] Simulator + current board work against `localhost` Compose end to end (face, tools, memory, ambient)
 
@@ -66,11 +73,20 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 - [ ] Portal Pixel switcher; DEVICE page per Pixel; DASHBOARD shows all Pixels of the household
 - [ ] Persona per Pixel; memory per owner (D5) — prompt builder reads both
 - [ ] Firmware (Pixel-Lite): pairing message + token storage in NVS; capabilities in hello; QR points at `/pair?code=…`
+- [ ] Firmware: SoftAP captive-portal provisioning (Wi-Fi + brain URL), "setup" face, long-press-to-reset; remove `secrets.h` dependency
+- [ ] Portal: "Add a Pixel" wizard (power on → join `Pixel-XXXX` → pick Wi-Fi → enter code) + ESP Web Tools flasher page
+
+### P2b — OTA updates
+- [ ] Pixel-Lite partition table → `min_spiffs.csv`; verify current image fits with headroom
+- [ ] Firmware updater: manifest check (boot, daily, on `{"type":"ota"}` push), HTTPS download to inactive slot, SHA-256 verify, reboot, mark-valid after brain connect, rollback otherwise; "updating" face + progress messages
+- [ ] Brain: `firmware_releases` table, `/api/firmware/manifest?device_type=&channel=`, upload endpoint or B2 bucket for binaries
+- [ ] CI (GitHub Actions): build all envs on tag, publish binaries + manifest; portal shows per-Pixel version, channel, Update now, progress
 
 ### P3 — Cutover to Oracle
 - [ ] Oracle A1 VM (Ubuntu 24.04 arm64), PAYG upgrade, firewall; `bootstrap.sh` (docker, fail2ban, unattended-upgrades, clone, compose up)
 - [ ] Domain + Caddy TLS; Google OAuth client; `.env` on the box
 - [ ] Nightly `pg_dump` → Backblaze B2; weekly restore test; Uptime Kuma alerts
+- [ ] Telemetry: heartbeat v2 (fw, reset reason, min heap, fps, RSSI, reconnects, audio xruns, battery); device log shipping + crash upload; HEALTH portal page (per Pixel + brain latency percentiles); retention jobs
 - [ ] Import prod data from Modal; repoint device (`secrets.h`) and simulator; retire Modal app
 
 ### P4 — Pixel-3S bring-up (after hardware arrives)
