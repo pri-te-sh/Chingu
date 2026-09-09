@@ -26,6 +26,9 @@ DEFAULTS = {
     "brief_enabled": True,
     "brief_refresh_min": 60,
     "session_gap_min": 30,
+    "barge_in": True,          # let the user interrupt Pixel by voice (needs a client with echo cancellation, e.g. a browser)
+    "barge_rms": 2200,         # louder than normal speech onset: residual echo must not count
+    "barge_min_ms": 300,
     # eye tint per expression while it holds ("-" = keep base colour); eases back to eye_color afterwards
     "mood_colors": {"love": "#FF6AD5", "annoyed": "#FF4A4A", "sad": "#4C8DFF", "thinking": "#4CC9F0",
                     "surprised": "#FFFFFF", "excited": "#FFD23F", "suspicious": "#B388FF",

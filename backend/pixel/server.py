@@ -317,6 +317,10 @@ async def ws_endpoint(ws: WebSocket):
     def mic_gated() -> bool:
         return time.time() < sess.speaking_until
 
+    cfgb = settings.get()
+    barge = EnergyVAD(start_rms=cfgb.get("barge_rms", 2200), end_rms=C.VAD_END_RMS, min_speech_ms=cfgb.get("barge_min_ms", 300))
+    barge_ms = 0.0
+
     async def handle_utterance(pcm: bytes):
         if len(pcm) < MIN_UTTERANCE_S * C.SAMPLE_RATE * 2:
             return
@@ -352,8 +356,27 @@ async def ws_endpoint(ws: WebSocket):
         while True:
             msg = await ws.receive()
             if msg.get("bytes") is not None:
-                if mic_gated():                          # our own voice is (probably) coming out of the speaker
-                    vad.reset(); continue
+                if mic_gated():
+                    # Pixel is talking. With an echo-cancelling client we still listen for a clearly louder, sustained
+                    # voice on top of the residual echo: that is the user cutting in -> stop talking, keep their words.
+                    if not settings.get().get("barge_in", True) or hello.get("aec") is False:
+                        vad.reset(); continue
+                    barge.feed(msg["bytes"])
+                    if barge.speaking:
+                        barge_ms += len(msg["bytes"]) / (C.SAMPLE_RATE * 2) * 1000
+                        if barge_ms >= settings.get().get("barge_min_ms", 300):
+                            print(f"[pixel] {device}: barge-in")
+                            if sess.turn_task and not sess.turn_task.done():
+                                sess.turn_task.cancel()
+                            sess.speaking_until = 0.0
+                            vad.reset(); vad.buffer = bytearray(barge.buffer); vad.speaking = True; vad.speech_ms = barge.speech_ms
+                            barge.reset(); barge_ms = 0.0
+                            was_speaking = True
+                            await send_json(ws, type="vad", speaking=True)
+                    else:
+                        barge_ms = 0.0
+                    continue
+                barge.reset(); barge_ms = 0.0
                 utt = vad.feed(msg["bytes"])
                 if vad.speaking != was_speaking:
                     was_speaking = vad.speaking
