@@ -23,7 +23,7 @@ static WebSocketsClient ws;
 static Face* face_ = nullptr;
 static TFT_eSPI* tft_ = nullptr;
 static bool ready_ = false;
-static uint32_t pingSent_ = 0, pongRtt_ = 0;
+static uint32_t pingSent_ = 0, pongRtt_ = 0, holdOffUntil_ = 0;
 
 static void sendStatus();
 static void setLedBlue(bool on) { digitalWrite(PIN_LED_B, on ? LOW : HIGH); }
@@ -41,12 +41,24 @@ static void onEvent(WStype_t type, uint8_t* payload, size_t len) {
     case WStype_DISCONNECTED:
       if (ready_) dbg::log("[net] ws disconnected");
       ready_ = false;
+      if (holdOffUntil_ > millis()) ws.disconnect();     // stay off while the brain redeploys
+      break;
+    case WStype_ERROR:
+      break;
+    // the brain says it is redeploying: give the old container time to exit before reconnecting
+    case WStype_FRAGMENT_TEXT_START: case WStype_FRAGMENT_BIN_START: case WStype_FRAGMENT: case WStype_FRAGMENT_FIN:
       break;
     case WStype_TEXT: {
       JsonDocument d;
       if (deserializeJson(d, payload, len)) break;
       const char* t = d["type"] | "";
       if (!strcmp(t, "ready")) { ready_ = true; dbg::log("[net] brain ready"); sendStatus(); }
+      else if (!strcmp(t, "redeploy")) {
+        uint32_t wait = d["wait_s"] | 60;
+        holdOffUntil_ = millis() + wait * 1000;
+        dbg::log("[net] brain redeploying - reconnecting in %us", wait);
+        ws.disconnect();
+      }
       else if (!strcmp(t, "config")) {
         strlcpy(prefs::name, d["name"] | prefs::name, sizeof prefs::name);
         prefs::setFromHex(d["eye_color"] | "");
@@ -132,7 +144,17 @@ void loop() {
     else dbg::log("[net] wifi down");
   }
   if (!up && millis() - lastBlink > 400) { lastBlink = millis(); setLedBlue((millis() / 400) & 1); }
-  if (up) ws.loop();
+  static bool held = false;
+  if (holdOffUntil_ && millis() > holdOffUntil_) {          // hold-off over: resume reconnecting
+    holdOffUntil_ = 0; held = false;
+#if BACKEND_TLS
+    ws.beginSSL(BACKEND_HOST, BACKEND_PORT, "/ws");
+#else
+    ws.begin(BACKEND_HOST, BACKEND_PORT, "/ws");
+#endif
+    dbg::log("[net] reconnecting to brain");
+  } else if (holdOffUntil_ && !held) { held = true; }
+  if (up && !holdOffUntil_) ws.loop();
   if (ready_ && millis() - lastStatus > 30000) { lastStatus = millis(); sendStatus(); }
 }
 

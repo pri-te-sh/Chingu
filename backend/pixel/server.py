@@ -149,7 +149,9 @@ async def ws_endpoint(ws: WebSocket):
         hello = json.loads(await asyncio.wait_for(ws.receive_text(), timeout=10))
     except Exception:
         await ws.close(code=4000); return
-    if C.PIXEL_TOKEN and hello.get("token") != C.PIXEL_TOKEN:
+    ip = ws.client.host if ws.client else "?"
+    if C.PIXEL_TOKEN and (_throttled(ip) or hello.get("token") != C.PIXEL_TOKEN):
+        if not _throttled(ip): _fails.setdefault(ip, []).append(time.time())
         await ws.close(code=4001); return
 
     device = re.sub(r"[^a-z0-9_-]", "", (hello.get("device") or "pixel").lower()) or "pixel"
@@ -236,11 +238,24 @@ async def ws_endpoint(ws: WebSocket):
 
 
 # =============================================================== REST API (portal)
+_fails: dict[str, list[float]] = {}     # ip -> timestamps of failed auths (brute-force throttle for the short token)
+
+
+def _throttled(ip: str) -> bool:
+    now = time.time()
+    _fails[ip] = [t for t in _fails.get(ip, []) if now - t < 600]
+    return len(_fails[ip]) >= 8            # 8 bad tries per 10 min, then locked out for the window
+
+
 def auth(request: Request):
     if not C.PIXEL_TOKEN:
         return
+    ip = request.client.host if request.client else "?"
+    if _throttled(ip):
+        raise HTTPException(429, "too many attempts - try again later")
     tok = request.headers.get("authorization", "").removeprefix("Bearer ").strip() or request.cookies.get("pixel_token")
     if tok != C.PIXEL_TOKEN:
+        _fails.setdefault(ip, []).append(time.time())
         raise HTTPException(401, "bad token")
 
 
@@ -367,6 +382,20 @@ async def api_chat(body: dict):
     """Text-only test conversation from the portal (no device, no audio)."""
     if not body.get("text"): raise HTTPException(400, "text required")
     return await respond(None, "portal", body["text"], want_audio=False)
+
+
+@app.post("/api/admin/drain", dependencies=[Depends(auth)])
+async def api_drain():
+    """Before a redeploy: close device sessions with code 4002 so boards back off and the old container can exit."""
+    n = 0
+    for sess in list(sessions.values()):
+        try:
+            await send_json(sess.ws, type="redeploy", wait_s=60)
+            await sess.ws.close(code=4002, reason="redeploying")
+            n += 1
+        except Exception:
+            pass
+    return {"closed": n}
 
 
 @app.get("/api/device/events", dependencies=[Depends(auth)])
