@@ -71,7 +71,8 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 - [x] Firmware: start the turn timer on `transcript` so portal-initiated turns report real latencies (currently bogus on inbox turns)
 - [x] Pairing flow: device shows code → portal "Add a Pixel" → claim → per-device token issued and pushed; revoke from portal
 - [x] `hello` carries `device_type`, `fw`, `capabilities` (mic, speaker, camera, imu, battery); brain adapts features
-- [x] Portal Pixel switcher; DEVICE page per Pixel; DASHBOARD shows all Pixels of the household
+- [x] Portal restructured (2026-09-09): HOME / TALK / HISTORY / MEMORY / PIXELS (cards + per-Pixel tabs: identity, voice & brain, eyes, device) / HOUSEHOLD / account menu; Pixel switcher in header; Add-a-Pixel wizard
+- [x] Removing a Pixel archives it (unpair + hide, history kept) — never cascade-deletes turns
 - [x] Persona per Pixel; memory per owner (D5) — prompt builder reads both
 - [x] Firmware (Pixel-Lite): pairing message + token storage in NVS; capabilities in hello; device id from MAC (`lite-xxxxxx`); Portal screen shows pairing code
 - [x] Firmware: SoftAP captive-portal provisioning (Wi-Fi + brain URL), "setup" face, long-press-to-reset; remove `secrets.h` dependency
