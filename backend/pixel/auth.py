@@ -21,7 +21,7 @@ DEV_PASSWORD = os.environ.get("DEV_LOGIN_PASSWORD", "")
 
 
 def providers() -> dict:
-    return {"dev": ENV == "dev" and bool(DEV_EMAIL and DEV_PASSWORD), "google": bool(GOOGLE_ID and GOOGLE_SECRET)}
+    return {"dev": (ENV == "dev" or os.environ.get("PIXEL_ALLOW_DEV_LOGIN") == "1") and bool(DEV_EMAIL and DEV_PASSWORD), "google": bool(GOOGLE_ID and GOOGLE_SECRET)}
 
 
 # ---------------- users & households ----------------
