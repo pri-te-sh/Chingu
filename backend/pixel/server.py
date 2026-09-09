@@ -176,11 +176,16 @@ async def respond(ws: WebSocket | None, device: str, user_text: str, want_audio=
                 for c in calls:
                     await send_json(ws, type="tool", name=c.get("function", {}).get("name"), args=c.get("function", {}).get("arguments"))
             said_words = re.sub(r"^\s*\[[^\]]*\]?\s*", "", said).strip()   # narration minus any (possibly partial) expression tag
-            if narrate and not said_words:
-                text, expr_ = tools.narrate_before(calls)
-                await say_step(text, expr_)
-            elif ws:
-                await send_json(ws, type="expression", name="curious", intensity=0.8)
+            if said_words:
+                yield "\u0000FLUSH"                   # voice + record the model's own narration before the tools run
+                if ws: await send_json(ws, type="expression", name="curious", intensity=0.8)
+            else:
+                tagged = ""; tag_done = False          # drop a bare/partial tag so the final reply parses cleanly
+                if narrate:
+                    text, expr_ = tools.narrate_before(calls)
+                    await say_step(text, expr_)
+                elif ws:
+                    await send_json(ws, type="expression", name="curious", intensity=0.8)
             results = await asyncio.gather(*(tools.run(c) for c in calls))
             if narrate:
                 bridge = tools.narrate_after(results)
@@ -191,11 +196,7 @@ async def respond(ws: WebSocket | None, device: str, user_text: str, want_audio=
                 tools_used.append({"name": name, "args": args, "result": res[:300]})
                 print(f"[pixel] tool {name}({args}) -> {res[:120]!r}")
                 messages = messages + [{"role": "tool", "tool_name": name, "content": res}]
-            # the model's pre-tool sentence was already streamed: speak it as a step and start the final reply clean
-            if said_words:
-                yield "\u0000FLUSH"
-            else:
-                tagged = ""; tag_done = False          # drop a bare/partial tag so the final reply parses cleanly
+
 
     async for delta in stream_with_tools():
         if delta == "\u0000FLUSH":
