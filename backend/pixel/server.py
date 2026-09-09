@@ -255,6 +255,11 @@ async def api_config():
     return settings.get()
 
 
+@app.get("/api/config/defaults", dependencies=[Depends(auth)])
+async def api_config_defaults():
+    return settings.DEFAULTS
+
+
 @app.put("/api/config", dependencies=[Depends(auth)])
 async def api_config_put(patch: dict):
     cfg = settings.update(patch)
