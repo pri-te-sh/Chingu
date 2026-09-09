@@ -1,7 +1,7 @@
 # Pixel Platform — Plan & Task Tracker
 
 _Living document. Claude works top-down through the unchecked tasks and updates this file as things land.
-Last updated: 2026-09-09._
+Last updated: 2026-09-09 (P0 started)._
 
 ## Decisions (settled — do not re-open without a reason)
 
@@ -96,7 +96,7 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 - [ ] 3S: ES8311 mic/speaker via I²S; esp-sr AFE (AEC + NS) → full-duplex barge-in; wake word "Hey Pixel"
 - [ ] 3S: OV2640 camera → presence, face tracking (eyes follow), face recognition, "look at this"
 - [ ] 3S: IMU gestures (pick-up, tap), battery guard (warn 3.55 V, deep-sleep 3.45 V), battery in heartbeat
-- [ ] Pixel-Lite: speaker via DAC + half-duplex gating (no mic on Lite unless INMP441 added)
+- [ ] Pixel-Lite: speaker via DAC (IO26, amp IO4) + INMP441 I²S mic (SCK IO25, WS IO32, SD IO35 — arrives 2026-09-10) with half-duplex gating (no AEC on classic ESP32); wake word via server-side openWakeWord or push-to-talk touch
 
 ### P5 — PotBot
 - [ ] XIAO ESP32-C3 node firmware: SHT40, VEML7700, STEMMA soil → readings every 5 min
@@ -111,5 +111,4 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 5. Watch 24 h; then `modal app stop pixel-brain`
 
 ## Open questions
-- Speaker/mic for Pixel-Lite: add INMP441 later, or leave Lite as face + speaker only?
 - Domain name.
