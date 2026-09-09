@@ -154,6 +154,11 @@ void DebugUI::iconQr(int cx, int cy, uint16_t c) {
   for (int y = 0; y < 4; y++) for (int x = 0; x < 4; x++) if (m[y][x]) tft_.fillRect(cx + 4 + x * 3, cy + 4 + y * 3, 3, 3, c);
 }
 
+void DebugUI::iconGear(int cx, int cy, uint16_t c) {
+  tft_.drawSmoothArc(cx, cy, 15, 9, 0, 360, c, CARD, false);
+  for (int i = 0; i < 8; i++) { float a = i * PI / 4; tft_.fillSmoothCircle(cx + cosf(a) * 15, cy + sinf(a) * 15, 3, c, CARD); }
+}
+
 void DebugUI::iconFace(int cx, int cy, uint16_t c) {
   tft_.fillSmoothRoundRect(cx - 18, cy - 12, 12, 16, 4, c, CARD);
   tft_.fillSmoothRoundRect(cx + 6, cy - 12, 12, 16, 4, c, CARD);
@@ -175,12 +180,13 @@ void DebugUI::show(Screen s) {
     case LOG:      header("Event log", true); lastLogCount_ = -1; drawLog(); break;
     case SYSTEM:   header("System", true); drawSystem(); break;
     case PORTAL:   header("Portal", true); drawPortal(); break;
+    case SETUP:    header("Setup", true); confirm_ = 0; drawSetup(); break;
   }
 }
 
-static const struct { const char* label; uint8_t id; } TILES[7] = {
-  {"Network", 1}, {"Internet", 2}, {"Pipeline", 3}, {"Event log", 4}, {"System", 5}, {"Portal", 7}, {"Face", 6}};
-static const int NTILES = 7;
+static const struct { const char* label; uint8_t id; } TILES[8] = {
+  {"Network", 1}, {"Internet", 2}, {"Pipeline", 3}, {"Event log", 4}, {"System", 5}, {"Portal", 7}, {"Setup", 8}, {"Face", 6}};
+static const int NTILES = 8;
 // 3 columns x 3 rows of compact tiles (icon left, label right)
 static DebugUI::Rect tileRect(int i) { return {(int16_t)(8 + (i % 3) * 104), (int16_t)(HDR + 8 + (i / 3) * 64), 96, 56}; }
 
@@ -196,6 +202,7 @@ void DebugUI::drawMenu() {
       case 4: iconLog(cx, cy, TXT); break;
       case 5: iconChip(cx, cy, AMBER); break;
       case 7: iconQr(cx, cy, TXT); break;
+      case 8: iconGear(cx, cy, MUTED); break;
       case 6: iconFace(cx, cy, AMBER); break;
     }
     tft_.setTextDatum(ML_DATUM); tft_.setTextColor(TXT, CARD);
@@ -417,13 +424,30 @@ void DebugUI::drawPortal() {
   else { tft_.setTextColor(GREEN, BG); tft_.drawString(net::connected() ? "paired" : "connecting...", tx, y, 2); y += 22; tft_.setTextColor(MUTED, BG); tft_.drawString("hold BOOT 10 s to reset Wi-Fi + pairing", tx, y, 1); }
 }
 
+static const DebugUI::Rect BTN_WIFI{16, HDR + 14, 288, 44};
+static const DebugUI::Rect BTN_UNPAIR{16, HDR + 68, 288, 44};
+static const DebugUI::Rect BTN_FACTORY{16, HDR + 122, 288, 44};
+
+void DebugUI::drawSetup() {
+  tft_.fillRect(0, HDR + 2, SCREEN_W, SCREEN_H - HDR - 2, BG);
+  pill(BTN_WIFI, confirm_ == 1 ? "TAP AGAIN: CHANGE WI-FI" : "Change Wi-Fi", confirm_ == 1 ? AMBER : CARD, confirm_ == 1 ? INK : TXT);
+  pill(BTN_UNPAIR, confirm_ == 2 ? "TAP AGAIN: UNPAIR" : "Unpair from portal", confirm_ == 2 ? AMBER : CARD, confirm_ == 2 ? INK : TXT);
+  pill(BTN_FACTORY, confirm_ == 3 ? "TAP AGAIN: FACTORY RESET" : "Factory reset", confirm_ == 3 ? RED : CARD, confirm_ == 3 ? TFT_WHITE : RED);
+  tft_.setTextDatum(TL_DATUM); tft_.setTextColor(MUTED, BG);
+  tft_.drawString("Change Wi-Fi: reboots into setup mode, pairing kept.", 16, HDR + 176, 1);
+  tft_.drawString("Unpair: forgets the pairing token, shows a new code.", 16, HDR + 190, 1);
+  tft_.drawString("Factory reset: forgets Wi-Fi, brain address and pairing.", 16, HDR + 204, 1);
+  char b[64]; snprintf(b, sizeof b, "Wi-Fi: %s   brain: %s", prefs::wifiSsid[0] ? prefs::wifiSsid : "(none)", net::backendHost());
+  tft_.setTextColor(TXT, BG); tft_.drawString(b, 16, SCREEN_H - 16, 1);
+}
+
 // =========================================================== input / refresh
 void DebugUI::touch(int16_t x, int16_t y) {
   if (screen_ != MENU && BACK.has(x, y)) { show(MENU); return; }
   switch (screen_) {
     case MENU:
       for (int i = 0; i < NTILES; i++)
-        if (tileRect(i).has(x, y)) { if (TILES[i].id == 6) exit(); else show(TILES[i].id == 7 ? PORTAL : (Screen)TILES[i].id); return; }
+        if (tileRect(i).has(x, y)) { if (TILES[i].id == 6) exit(); else show(TILES[i].id == 7 ? PORTAL : TILES[i].id == 8 ? SETUP : (Screen)TILES[i].id); return; }
       break;
     case INTERNET:
       if (RUN.has(x, y) && !inet_.running) { inet_ = {}; inet_.running = true; inet_.step = 1; drawInternet(); }
@@ -432,6 +456,16 @@ void DebugUI::touch(int16_t x, int16_t y) {
       for (int i = 0; i < 5; i++)
         if (presetRect(i).has(x, y)) { lastPreset_ = i; lastTurnDone_ = false; net::sendText(PRESETS[i]); drawPipeline(); return; }
       break;
+    case SETUP: {
+      uint8_t which = BTN_WIFI.has(x, y) ? 1 : BTN_UNPAIR.has(x, y) ? 2 : BTN_FACTORY.has(x, y) ? 3 : 0;
+      if (!which) { confirm_ = 0; drawSetup(); break; }
+      if (confirm_ != which) { confirm_ = which; drawSetup(); break; }      // first tap arms, second tap acts
+      dbg::log("[dbg] setup action %u", which);
+      if (which == 1) prefs::forgetWifi(); else if (which == 2) prefs::forgetToken(); else prefs::factoryReset();
+      tft_.fillScreen(BG); tft_.setTextDatum(MC_DATUM); tft_.setTextColor(AMBER, BG); tft_.drawString("restarting...", SCREEN_W / 2, SCREEN_H / 2, 4);
+      delay(400); ESP.restart();
+      break;
+    }
     case SYSTEM:
       if (VERBOSE.has(x, y)) { dbg::verbose = !dbg::verbose; dbg::log("[dbg] verbose %s", dbg::verbose ? "on" : "off"); drawSystem(); }
       else if (REBOOT.has(x, y)) { dbg::log("[dbg] reboot"); delay(200); ESP.restart(); }

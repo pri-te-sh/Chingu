@@ -21,6 +21,8 @@ extern char token[64];           // per-device token issued when paired ("" = un
 void load();
 void save();
 void factoryReset();             // wipes Wi-Fi, brain and token (keeps nothing)
+void forgetWifi();               // back to setup mode on next boot, pairing kept
+void forgetToken();              // unpair, Wi-Fi kept
 bool hasWifi();
 bool hasToken();
 void apply(Face& face, TFT_eSPI& tft);

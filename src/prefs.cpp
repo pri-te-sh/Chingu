@@ -62,9 +62,15 @@ void save() {
 }
 
 void factoryReset() {
-  p.begin("pixel", false); p.clear(); p.end();
+  p.begin("pixel", false); p.clear(); p.putBool("seeded", true); p.end();   // a reset board is "seeded": secrets.h must not refill it
   wifiSsid[0] = wifiPass[0] = token[0] = 0;
 }
+
+void forgetWifi() {
+  wifiSsid[0] = wifiPass[0] = 0; save();
+}
+
+void forgetToken() { token[0] = 0; save(); }
 
 bool hasWifi() { return wifiSsid[0] != 0; }
 bool hasToken() { return token[0] != 0; }

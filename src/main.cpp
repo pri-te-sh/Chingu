@@ -86,8 +86,8 @@ static void handleSerial() {
       } else if (!strcmp(cmd, "sleep")) { face.setExpression(EXPR_ASLEEP); Serial.println("ok sleep"); }
       else if (!strcmp(cmd, "wake")) { face.wake(); Serial.println("ok wake"); }
       else if (!strcmp(cmd, "debug")) toggleDebug();
-      else if (!strcmp(cmd, "setup")) { prefs::wifiSsid[0] = 0; prefs::save(); ESP.restart(); }
-      else if (!strcmp(cmd, "unpair")) { prefs::token[0] = 0; prefs::save(); ESP.restart(); }
+      else if (!strcmp(cmd, "setup")) { prefs::forgetWifi(); ESP.restart(); }
+      else if (!strcmp(cmd, "unpair")) { prefs::forgetToken(); ESP.restart(); }
       else if (!strcmp(cmd, "factory")) { prefs::factoryReset(); ESP.restart(); }
       else if (!strcmp(cmd, "id")) Serial.printf("device %s brain %s:%u tls %d paired %d\n", prefs::deviceId(), prefs::brainHost, prefs::brainPort, prefs::brainTls, prefs::hasToken());
       else if (!strcmp(cmd, "verbose")) { dbg::verbose = !dbg::verbose; Serial.printf("verbose %s\n", dbg::verbose ? "on" : "off"); }

@@ -16,7 +16,7 @@ public:
   void setFps(uint16_t fps) { fps_ = fps; }
 
 private:
-  enum Screen { MENU, NETWORK, INTERNET, PIPELINE, LOG, SYSTEM, PORTAL };
+  enum Screen { MENU, NETWORK, INTERNET, PIPELINE, LOG, SYSTEM, PORTAL, SETUP };
 
   // widget kit
   void header(const char* title, bool back);
@@ -43,7 +43,10 @@ private:
   void drawLog();
   void drawSystem();
   void drawPortal();
+  void drawSetup();
+  uint8_t confirm_ = 0;   // SETUP: which destructive action is awaiting its second tap
   void iconQr(int cx, int cy, uint16_t c);
+  void iconGear(int cx, int cy, uint16_t c);
 
   TFT_eSPI& tft_;
   bool active_ = false;
