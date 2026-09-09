@@ -1,7 +1,7 @@
 # Pixel Platform — Plan & Task Tracker
 
 _Living document. Claude works top-down through the unchecked tasks and updates this file as things land.
-Last updated: 2026-09-09 (P0 started)._
+Last updated: 2026-09-09 (P0 done locally; Modal frozen at its last deploy — `modal_app.py` is no longer deployable from this tree and is retired at P3)._
 
 ## Decisions (settled — do not re-open without a reason)
 
@@ -52,14 +52,14 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 ## Phases & tasks
 
 ### P0 — Local platform spine (Docker Compose, Postgres, Redis)
-- [ ] `docker-compose.yml`: caddy, brain, worker, postgres, redis (+ uptime-kuma profile); `.env.example`; multi-arch Dockerfiles
-- [ ] Postgres schema + Alembic migrations for the v1 data model
-- [ ] Store layer: replace `store.py` JSON/Dict with repository functions over Postgres; Redis for presence/inbox/pubsub
-- [ ] One-shot importer: Modal Dict → Postgres (facts, follow-ups, summaries, turns, events, config → persona)
-- [ ] Worker process: STT/TTS over a local queue (Redis) so inference never blocks the WS loop
-- [ ] Structured JSON logging (structlog) with pixel/turn ids; per-stage latency + error counters recorded per turn; `/metrics` endpoint
-- [ ] pytest suite (store, memory scoping, protocol) runnable in Compose
-- [ ] Simulator + current board work against `localhost` Compose end to end (face, tools, memory, ambient)
+- [x] `docker-compose.yml`: caddy, brain, worker, postgres, redis (+ uptime-kuma profile); `.env.example`; multi-arch Dockerfiles
+- [x] Postgres schema + Alembic migrations for the v1 data model
+- [x] Store layer: replace `store.py` JSON/Dict with repository functions over Postgres; Redis for presence/inbox/pubsub
+- [x] One-shot importer: Modal Dict → Postgres (facts, follow-ups, summaries, turns, events, config → persona)
+- [x] Worker process: STT/TTS as a separate HTTP service (`pixel/worker.py`) so inference never blocks the WS loop (swap-able for GPU/hosted later)
+- [x] Structured JSON logging (structlog) with pixel/turn ids; per-stage latency + error counters recorded per turn; `/metrics` endpoint
+- [x] pytest suite (store, memory scoping, protocol) runnable in Compose
+- [x] Simulator + current board work against `localhost` Compose end to end (face, tools, memory, ambient)
 
 ### P1 — Auth & profiles
 - [ ] Auth provider interface; `dev` provider (env credentials); session cookies; CSRF for portal POSTs
@@ -68,6 +68,7 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 - [ ] Google provider (Authlib) wired but disabled until cutover
 
 ### P2 — Multi-Pixel & pairing
+- [ ] Firmware: start the turn timer on `transcript` so portal-initiated turns report real latencies (currently bogus on inbox turns)
 - [ ] Pairing flow: device shows code → portal "Add a Pixel" → claim → per-device token issued and pushed; revoke from portal
 - [ ] `hello` carries `device_type`, `fw`, `capabilities` (mic, speaker, camera, imu, battery); brain adapts features
 - [ ] Portal Pixel switcher; DEVICE page per Pixel; DASHBOARD shows all Pixels of the household

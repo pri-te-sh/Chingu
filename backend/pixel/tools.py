@@ -2,7 +2,10 @@
 Executed concurrently; results are trimmed hard because they go straight back into a spoken-reply prompt."""
 import asyncio, json, re
 import httpx
-from . import config as C, memory, settings
+import contextvars
+from . import config as C, repo
+
+current_cfg: contextvars.ContextVar[dict] = contextvars.ContextVar("current_cfg", default={})
 
 SEARCH_HOST = "https://ollama.com"          # web_search/web_fetch live on ollama.com regardless of chat host
 
@@ -11,8 +14,7 @@ def _headers():
     return {"Authorization": f"Bearer {C.OLLAMA_API_KEY}"} if C.OLLAMA_API_KEY else {}
 
 
-def definitions() -> list[dict]:
-    cfg = settings.get()
+def definitions(cfg: dict) -> list[dict]:
     tools = [
         {"type": "function", "function": {"name": "remember", "description": "Save a durable fact, preference or project about the owner to long-term memory. Use when they tell you something worth remembering or ask you to remember.",
             "parameters": {"type": "object", "properties": {"text": {"type": "string", "description": "Concise third-person statement"}, "type": {"type": "string", "enum": ["fact", "preference", "project"]}}, "required": ["text"]}}},
@@ -35,7 +37,7 @@ def _clip(text: str, n: int) -> str:
 
 
 async def web_search(query: str, max_results: int | None = None) -> str:
-    n = max_results or settings.get().get("web_results", 3)
+    n = max_results or current_cfg.get().get("web_results", 3)
     async with httpx.AsyncClient(timeout=httpx.Timeout(20, connect=10)) as client:
         r = await client.post(f"{SEARCH_HOST}/api/web_search", json={"query": query, "max_results": n}, headers=_headers())
         r.raise_for_status()
@@ -54,12 +56,14 @@ async def web_fetch(url: str) -> str:
 
 
 async def remember(text: str, type: str = "fact") -> str:
-    f = memory.add_fact(text, type, pinned=True)
+    hid = current_cfg.get()["_household_id"]
+    f = await repo.add_fact(hid, text, type, pinned=True)
     return f"Saved to memory: {f['text']}"
 
 
 async def follow_up(text: str, due: str | None = None) -> str:
-    memory.add_followup(text, due if due and due != "null" else None)
+    hid = current_cfg.get()["_household_id"]
+    await repo.add_followup(hid, text, due if due and due != "null" else None)
     return f"Noted to follow up: {text}"
 
 

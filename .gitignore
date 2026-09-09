@@ -16,3 +16,4 @@ docs/vendor/pack/
 docs/vendor/*.zip
 
 .DS_Store
+.env

@@ -1,0 +1,73 @@
+# Pixel platform - identical on a laptop and on the Oracle VM; only .env differs.
+name: pixel
+services:
+  brain:
+    build: .
+    image: pixel-brain:local
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://pixel:${POSTGRES_PASSWORD:-pixel}@postgres:5432/pixel
+      REDIS_URL: redis://redis:6379/0
+      PIXEL_INFERENCE_URL: http://worker:8766
+      PIXEL_MODELS_DIR: /models
+    ports: ["8765:8765"]
+    volumes: ["models:/models"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+      worker: { condition: service_started }
+    command: sh -c "alembic upgrade head && uvicorn pixel.server:app --host 0.0.0.0 --port 8765 --log-level warning"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8765/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  worker:
+    image: pixel-brain:local
+    env_file: .env
+    environment:
+      PIXEL_MODELS_DIR: /models
+    volumes: ["models:/models"]
+    command: uvicorn pixel.worker:app --host 0.0.0.0 --port 8766 --log-level warning
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: pixel
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pixel}
+      POSTGRES_DB: pixel
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    ports: ["5434:5432"]          # host access for psql / tests; not exposed in production
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pixel -d pixel"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save 60 1 --loglevel warning
+    volumes: ["redisdata:/data"]
+    restart: unless-stopped
+
+  caddy:                          # TLS + reverse proxy; only used with a real domain (profile: prod)
+    image: caddy:2-alpine
+    profiles: ["prod"]
+    ports: ["80:80", "443:443"]
+    environment: { PIXEL_DOMAIN: "${PIXEL_DOMAIN:-localhost}" }
+    volumes: ["./Caddyfile:/etc/caddy/Caddyfile:ro", "caddydata:/data", "caddyconfig:/config"]
+    depends_on: [brain]
+    restart: unless-stopped
+
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    profiles: ["prod"]
+    ports: ["3001:3001"]
+    volumes: ["kuma:/app/data"]
+    restart: unless-stopped
+
+volumes: { pgdata: {}, redisdata: {}, models: {}, caddydata: {}, caddyconfig: {}, kuma: {} }

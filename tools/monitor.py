@@ -3,7 +3,9 @@
 Usage: .venv/bin/python tools/monitor.py [seconds] [--no-reset] [--send "cmd" [--after S]]"""
 import sys, time, serial
 
-PORT, BAUD = "/dev/cu.usbserial-110", 115200
+import glob
+PORT = (glob.glob("/dev/cu.*usbserial*") or ["/dev/cu.usbserial-110"])[0]
+BAUD = 115200
 secs = float(next((a for a in sys.argv[1:] if not a.startswith("--")), 6))
 reset = "--no-reset" not in sys.argv
 send = sys.argv[sys.argv.index("--send") + 1] if "--send" in sys.argv else None

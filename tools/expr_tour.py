@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Drive every expression over serial and echo the board's replies/stats. Usage: .venv/bin/python tools/expr_tour.py [dwell_s]"""
 import sys, time, serial
-PORT, BAUD = "/dev/cu.usbserial-110", 115200
+import glob
+PORT = (glob.glob("/dev/cu.*usbserial*") or ["/dev/cu.usbserial-110"])[0]
+BAUD = 115200
 dwell = float(sys.argv[1]) if len(sys.argv) > 1 else 2.0
 exprs = "neutral happy excited curious thinking listening surprised suspicious annoyed sad sleepy asleep love".split()
 with serial.Serial(PORT, BAUD, timeout=0.1) as s:
