@@ -5,6 +5,7 @@
 #include "prefs.h"
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <qrcode.h>
 
 // ---- palette (true RGB now that TFT_RGB_ORDER is set) ----
 #define RGB(r, g, b) ((uint16_t)((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3)))
@@ -145,6 +146,14 @@ void DebugUI::iconChip(int cx, int cy, uint16_t c) {
     tft_.fillRect(cx + i * 7 - 1, cy - 17, 3, 5, c); tft_.fillRect(cx + i * 7 - 1, cy + 12, 3, 5, c);
   }
 }
+void DebugUI::iconQr(int cx, int cy, uint16_t c) {
+  // stylised QR: three finder squares + a few modules
+  auto finder = [&](int x, int y) { tft_.fillRect(x, y, 12, 12, c); tft_.fillRect(x + 2, y + 2, 8, 8, CARD); tft_.fillRect(x + 4, y + 4, 4, 4, c); };
+  finder(cx - 16, cy - 16); finder(cx + 4, cy - 16); finder(cx - 16, cy + 4);
+  const uint8_t m[4][4] = {{1,0,1,1},{0,1,1,0},{1,1,0,1},{1,0,1,0}};
+  for (int y = 0; y < 4; y++) for (int x = 0; x < 4; x++) if (m[y][x]) tft_.fillRect(cx + 4 + x * 3, cy + 4 + y * 3, 3, 3, c);
+}
+
 void DebugUI::iconFace(int cx, int cy, uint16_t c) {
   tft_.fillSmoothRoundRect(cx - 18, cy - 12, 12, 16, 4, c, CARD);
   tft_.fillSmoothRoundRect(cx + 6, cy - 12, 12, 16, 4, c, CARD);
@@ -165,28 +174,32 @@ void DebugUI::show(Screen s) {
     case PIPELINE: header("Pipeline test", true); drawPipeline(); break;
     case LOG:      header("Event log", true); lastLogCount_ = -1; drawLog(); break;
     case SYSTEM:   header("System", true); drawSystem(); break;
+    case PORTAL:   header("Portal", true); drawPortal(); break;
   }
 }
 
-static const struct { const char* label; uint8_t id; } TILES[6] = {
-  {"Network", 1}, {"Internet", 2}, {"Pipeline", 3}, {"Event log", 4}, {"System", 5}, {"Face", 6}};
-static DebugUI::Rect tileRect(int i) { return {(int16_t)(8 + (i % 3) * 104), (int16_t)(HDR + 10 + (i / 3) * 98), 96, 90}; }
+static const struct { const char* label; uint8_t id; } TILES[7] = {
+  {"Network", 1}, {"Internet", 2}, {"Pipeline", 3}, {"Event log", 4}, {"System", 5}, {"Portal", 7}, {"Face", 6}};
+static const int NTILES = 7;
+// 3 columns x 3 rows of compact tiles (icon left, label right)
+static DebugUI::Rect tileRect(int i) { return {(int16_t)(8 + (i % 3) * 104), (int16_t)(HDR + 8 + (i / 3) * 64), 96, 56}; }
 
 void DebugUI::drawMenu() {
-  for (int i = 0; i < 6; i++) {
+  for (int i = 0; i < NTILES; i++) {
     Rect r = tileRect(i);
     card(r, CARD);
-    int cx = r.x + r.w / 2, cy = r.y + 32;
-    switch (i) {
-      case 0: iconWifi(cx, cy, net::wifiUp() ? WiFi.RSSI() : -100, EDGE); break;
-      case 1: iconGlobe(cx, cy, CYAN); break;
-      case 2: iconChat(cx, cy, net::connected() ? GREEN : MUTED); break;
-      case 3: iconLog(cx, cy, TXT); break;
-      case 4: iconChip(cx, cy, AMBER); break;
-      case 5: iconFace(cx, cy, AMBER); break;
+    int cx = r.x + 26, cy = r.y + r.h / 2;
+    switch (TILES[i].id) {
+      case 1: iconWifi(cx, cy - 6, net::wifiUp() ? WiFi.RSSI() : -100, EDGE); break;
+      case 2: iconGlobe(cx, cy, CYAN); break;
+      case 3: iconChat(cx, cy, net::connected() ? GREEN : MUTED); break;
+      case 4: iconLog(cx, cy, TXT); break;
+      case 5: iconChip(cx, cy, AMBER); break;
+      case 7: iconQr(cx, cy, TXT); break;
+      case 6: iconFace(cx, cy, AMBER); break;
     }
-    tft_.setTextDatum(BC_DATUM); tft_.setTextColor(TXT, CARD);
-    tft_.drawString(TILES[i].label, cx, r.y + r.h - 8, 2);
+    tft_.setTextDatum(ML_DATUM); tft_.setTextColor(TXT, CARD);
+    tft_.drawString(TILES[i].label, r.x + 50, cy, 2);
   }
   tft_.setTextDatum(BC_DATUM); tft_.setTextColor(MUTED, BG);
   tft_.drawString("hold BOOT or the screen to leave", SCREEN_W / 2, SCREEN_H - 3, 1);
@@ -383,13 +396,42 @@ void DebugUI::drawSystem() {
   kv(12, y, 300, "Serial", "expr say look net debug verbose", MUTED);
 }
 
+void DebugUI::drawPortal() {
+  char url[200];
+  snprintf(url, sizeof url, "%s://%s%s/portal?token=%s", net::tls() ? "https" : "http", net::backendHost(),
+           (net::backendPort() == 443 || net::backendPort() == 80) ? "" : (String(":") + net::backendPort()).c_str(), net::token());
+  // QR: version 6 (41x41) holds ~130 chars at ECC low; scale so it fills the left column
+  QRCode qr; uint8_t data[qrcode_getBufferSize(6)];
+  bool ok = qrcode_initText(&qr, data, 6, ECC_LOW, url) == 0;
+  const int scale = 4, size = qr.size * scale, x0 = 14, y0 = HDR + (SCREEN_H - HDR - size) / 2;
+  tft_.fillRect(x0 - 6, y0 - 6, size + 12, size + 12, TFT_WHITE);
+  if (ok) for (uint8_t y = 0; y < qr.size; y++) for (uint8_t x = 0; x < qr.size; x++)
+    if (qrcode_getModule(&qr, x, y)) tft_.fillRect(x0 + x * scale, y0 + y * scale, scale, scale, TFT_BLACK);
+  int tx = x0 + size + 22, y = HDR + 14;
+  tft_.setTextDatum(TL_DATUM); tft_.setTextColor(TXT, BG);
+  tft_.drawString("Scan to open the", tx, y, 2); y += 18;
+  tft_.drawString("portal, signed in.", tx, y, 2); y += 30;
+  tft_.setTextColor(MUTED, BG); tft_.drawString("Address", tx, y, 1); y += 12;
+  tft_.setTextColor(CYAN, BG);
+  String host = net::backendHost(); int cut = host.indexOf(".");       // wrap the long host at its first dot
+  tft_.drawString(host.substring(0, cut + 1), tx, y, 2); y += 16;
+  tft_.drawString(host.substring(cut + 1) + "/portal", tx, y, 2); y += 26;
+  tft_.setTextColor(MUTED, BG); tft_.drawString("Access token", tx, y, 1); y += 12;
+  String tok = net::token(); if (!tok.length()) tok = "(none - local dev)";
+  tft_.setTextColor(AMBER, BG);
+  tft_.drawString(tok.substring(0, 16), tx, y, 2); y += 16;
+  tft_.drawString(tok.substring(16), tx, y, 2); y += 26;
+  tft_.setTextColor(MUTED, BG); tft_.drawString("Anyone with this token controls Pixel.", tx, y, 1);
+  if (!ok) { tft_.setTextColor(RED, BG); tft_.drawString("QR too long", x0, y0, 2); }
+}
+
 // =========================================================== input / refresh
 void DebugUI::touch(int16_t x, int16_t y) {
   if (screen_ != MENU && BACK.has(x, y)) { show(MENU); return; }
   switch (screen_) {
     case MENU:
-      for (int i = 0; i < 6; i++)
-        if (tileRect(i).has(x, y)) { if (TILES[i].id == 6) exit(); else show((Screen)TILES[i].id); return; }
+      for (int i = 0; i < NTILES; i++)
+        if (tileRect(i).has(x, y)) { if (TILES[i].id == 6) exit(); else show(TILES[i].id == 7 ? PORTAL : (Screen)TILES[i].id); return; }
       break;
     case INTERNET:
       if (RUN.has(x, y) && !inet_.running) { inet_ = {}; inet_.running = true; inet_.step = 1; drawInternet(); }

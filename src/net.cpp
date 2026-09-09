@@ -140,6 +140,8 @@ bool wifiUp() { return WiFi.status() == WL_CONNECTED; }
 bool connected() { return ready_; }
 const char* backendHost() { return BACKEND_HOST; }
 uint16_t backendPort() { return BACKEND_PORT; }
+const char* token() { return BACKEND_TOKEN; }
+bool tls() { return BACKEND_TLS; }
 
 static void startTurn() { turn_ = Turn(); turn_.t0 = millis(); turn_.active = true; }
 
@@ -168,6 +170,8 @@ bool wifiUp() { return false; }
 bool connected() { return false; }
 const char* backendHost() { return "(none)"; }
 uint16_t backendPort() { return 0; }
+const char* token() { return ""; }
+bool tls() { return false; }
 void sendText(const char*) { dbg::log("[net] networking disabled"); }
 void sendAudio(const uint8_t*, size_t) {}
 void sendEnd() {}

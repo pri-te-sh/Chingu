@@ -16,7 +16,7 @@ public:
   void setFps(uint16_t fps) { fps_ = fps; }
 
 private:
-  enum Screen { MENU, NETWORK, INTERNET, PIPELINE, LOG, SYSTEM };
+  enum Screen { MENU, NETWORK, INTERNET, PIPELINE, LOG, SYSTEM, PORTAL };
 
   // widget kit
   void header(const char* title, bool back);
@@ -42,6 +42,8 @@ private:
   void drawPipeline();
   void drawLog();
   void drawSystem();
+  void drawPortal();
+  void iconQr(int cx, int cy, uint16_t c);
 
   TFT_eSPI& tft_;
   bool active_ = false;

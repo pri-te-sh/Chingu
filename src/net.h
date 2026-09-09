@@ -23,6 +23,8 @@ bool wifiUp();
 bool connected();                       // WebSocket session up (brain said "ready")
 const char* backendHost();
 uint16_t backendPort();
+const char* token();
+bool tls();
 void sendText(const char* text);        // typed input -> backend (testing path until the mic exists)
 void sendAudio(const uint8_t* pcm16, size_t len);
 void sendEnd();

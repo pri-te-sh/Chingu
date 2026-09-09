@@ -67,7 +67,7 @@ input[type=checkbox]{width:18px;height:18px;appearance:none;border:3px solid var
 <header><h1><canvas id="logo" width="22" height="15" style="width:66px;height:45px"></canvas><span id="title">PIXEL</span></h1>
 <nav id="nav"></nav><div id="chips"><span id="devchip"><i class="led"></i>NO DEVICE</span><span id="modelchip" class="cyan"></span><button id="theme" onclick="toggleTheme()" title="dark / light">☾</button></div></header>
 <main>
-<div id="login" class="px card" style="display:none"><h3>ACCESS TOKEN</h3><p class="muted" style="margin:0 0 10px">PIXEL_TOKEN from your Modal secret (same as BACKEND_TOKEN on the device).</p><input id="tok" type="password" placeholder="••••••••" onkeydown="if(event.key==='Enter')saveTok()"><div style="margin-top:16px"><button class="btn" onclick="saveTok()">ENTER</button></div></div>
+<div id="login" class="px card" style="display:none"><h3>ACCESS TOKEN</h3><p class="muted" style="margin:0 0 10px">On the device: hold BOOT → <b>Portal</b>. Scan the QR code, or type the token shown there.</p><input id="tok" type="password" placeholder="••••••••" onkeydown="if(event.key==='Enter')saveTok()"><div style="margin-top:16px"><button class="btn" onclick="saveTok()">ENTER</button></div></div>
 
 <!-- DASHBOARD -->
 <section id="dashboard">
@@ -126,7 +126,8 @@ const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim
 function setTheme(t){document.documentElement.dataset.theme=t;localStorage.setItem('pixel_theme',t);const b=document.getElementById('theme');if(b)b.textContent=t==='light'?'☀':'☾'}
 function toggleTheme(){setTheme(document.documentElement.dataset.theme==='light'?'dark':'light')}
 setTheme(localStorage.getItem('pixel_theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'));
-const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];let TOK=localStorage.getItem('pixel_token')||'';let CFG={},DEF={},TURNS=[],FACTS=[],DAY=null;
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];const _u=new URL(location.href);if(_u.searchParams.get('token')){localStorage.setItem('pixel_token',_u.searchParams.get('token'));_u.searchParams.delete('token');history.replaceState(null,'',_u.pathname+_u.hash)}
+let TOK=localStorage.getItem('pixel_token')||'';let CFG={},DEF={},TURNS=[],FACTS=[],DAY=null;
 const pages={dashboard:'DASHBOARD',log:'LOG',memory:'MEMORY',brain:'BRAIN',device:'DEVICE'};
 $('#nav').innerHTML=Object.entries(pages).map(([p,l])=>`<button data-p="${p}" onclick="go('${p}')">${l}</button>`).join('');
 function go(p){Object.keys(pages).forEach(x=>{$('#'+x).classList.toggle('on',x===p);document.querySelector(`[data-p=${x}]`).classList.toggle('on',x===p)});history.replaceState(null,'','#'+p);({dashboard:loadStatus,log:loadTurns,memory:loadMemory,brain:loadConfig,device:()=>loadConfig().then(loadStatus)})[p]().catch(()=>{})}
