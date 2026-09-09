@@ -10,6 +10,8 @@ from .chunker import Chunker
 from .bench import wer
 
 app = FastAPI(title="voicelab")
+PAUSES = {"none": (0, 0), "tight": (60, 160), "natural": (140, 320), "relaxed": (220, 500)}   # ms after a clause, after a sentence
+BARGE_RMS, BARGE_MIN_MS = 2500, 300      # while Pixel talks, only sustained loud speech counts (speaker echo must not cancel the turn)
 STATIC = ROOT / "static"
 _lock = asyncio.Lock()          # engines are not thread-safe; one inference at a time per process is fine for a lab
 
@@ -146,6 +148,7 @@ async def ws_talk(ws: WebSocket):
     turn_task: asyncio.Task | None = None
     cancel = asyncio.Event()
     chunk_seq = [0]                                                     # chunk ids unique across the session
+    loud_ms = 0.0
 
     async def send(**d): await ws.send_text(json.dumps(d))
 
@@ -159,7 +162,7 @@ async def ws_talk(ws: WebSocket):
                 if not text or len(text.split()) < 1: await send(type="transcript", text="", note="nothing recognised"); return
             await send(type="transcript", text=text, t=stamps.get("t_transcript"))
             history.append({"role": "user", "content": text})
-            ch = Chunker(); reply = ""; first_tok = True; first_audio = True
+            ch = Chunker(); reply = ""; first_tok = True; first_audio = True; llm_done = asyncio.Event()
             tts_q: asyncio.Queue = asyncio.Queue()
             def ms(): return round((time.perf_counter() - t_eos) * 1000)
             async def enqueue(text):
@@ -184,7 +187,12 @@ async def ws_talk(ws: WebSocket):
                         if nbytes == 0: await send(type="chunk", id=cid, state="audio", t=ms())     # frames for this chunk follow
                         if first_audio: first_audio = False; T_("t_first_audio"); await send(type="first_audio", t=stamps["t_first_audio"])
                         nbytes += len(c); await ws.send_bytes(c)
-                    await send(type="chunk", id=cid, state="ready", t=ms(), audio_s=round(nbytes / 2 / SR, 2), synth_ms=round((time.perf_counter() - t_synth) * 1000))
+                    if cancel.is_set(): await send(type="chunk", id=cid, state="cancelled", t=ms()); continue
+                    # breathing room between chunks: longer after a sentence than after a clause
+                    gap = PAUSES.get(cfg.get("pauses", "natural"), PAUSES["natural"]); end = chunk.rstrip()[-1:] if chunk.strip() else ""
+                    pause_ms = gap[1] if end in ".!?" else gap[0] if end in ",;:" else gap[0] // 2
+                    if pause_ms and not tts_q.empty() or pause_ms and not llm_done.is_set(): await ws.send_bytes(b"\x00" * (SR * 2 * pause_ms // 1000))
+                    await send(type="chunk", id=cid, state="ready", t=ms(), audio_s=round(nbytes / 2 / SR, 2), synth_ms=round((time.perf_counter() - t_synth) * 1000), pause_ms=pause_ms)
             sp = asyncio.create_task(speaker())
             async for delta in L.stream(history, cfg.get("model")):
                 if cancel.is_set(): break
@@ -193,7 +201,7 @@ async def ws_talk(ws: WebSocket):
                 for c in ch.feed(delta): await enqueue(c)
             if not cancel.is_set():
                 for c in ch.flush(): await enqueue(c)
-            await send(type="llm_done", t=ms())
+            llm_done.set(); await send(type="llm_done", t=ms())
             await tts_q.put(None); await sp
             T_("t_done")
             history.append({"role": "assistant", "content": reply})
@@ -217,9 +225,16 @@ async def ws_talk(ws: WebSocket):
                 continue
             pcm = m.get("bytes")
             if not pcm: continue
+            busy = turn_task is not None and not turn_task.done()
+            if busy:
+                # Pixel is talking: ignore the mic unless the user speaks clearly over it for BARGE_MIN_MS
+                arr = np.frombuffer(pcm, dtype=np.int16).astype(np.float32); rms = float(np.sqrt(np.mean(arr * arr))) if arr.size else 0.0
+                loud_ms = loud_ms + len(arr) / SR * 1000 if rms > BARGE_RMS else 0.0
+                if not (cfg.get("barge_in", True) and loud_ms >= BARGE_MIN_MS):
+                    vad.reset(); continue
+                cancel.set(); await send(type="barge_in", t=0)        # the user started talking over Pixel
+            else: loud_ms = 0.0
             utt = vad.feed(pcm)
-            if vad.speaking and turn_task and not turn_task.done() and cfg.get("barge_in", True):
-                cancel.set()                                            # the user started talking over Pixel
             if utt:
                 await send(type="speech_end_detected", audio_s=round(len(utt) / 2 / SR, 2))
                 if turn_task and not turn_task.done(): cancel.set(); await turn_task

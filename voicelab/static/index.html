@@ -45,7 +45,7 @@ small{color:var(--mut)}
 </section>
 
 <section id="talk">
- <div class="card"><div class="row"><b>Stack</b> STT <select id="tk-stt"></select> TTS <select id="tk-tts"></select> <select id="tk-voice"></select> VAD <select id="tk-vad"><option>energy</option><option>silero</option></select><label class="chk"><input type="checkbox" id="tk-barge" checked>barge-in</label><span style="margin-left:auto"></span><button class="b" id="tk-btn" onclick="talkToggle()">START</button><button class="b ghost" onclick="talkReset()">RESET CHAT</button></div>
+ <div class="card"><div class="row"><b>Stack</b> STT <select id="tk-stt"></select> TTS <select id="tk-tts"></select> <select id="tk-voice"></select> VAD <select id="tk-vad"><option>energy</option><option>silero</option></select> pauses <select id="tk-pauses"><option>none</option><option>tight</option><option selected>natural</option><option>relaxed</option></select><label class="chk"><input type="checkbox" id="tk-barge" checked>barge-in</label><span style="margin-left:auto"></span><button class="b" id="tk-btn" onclick="talkToggle()">START</button><button class="b ghost" onclick="talkReset()">RESET CHAT</button></div>
   <div class="row" style="margin-top:8px"><input type="text" id="tk-text" placeholder="or type instead of talking…" style="flex:1" onkeydown="if(event.key==='Enter')talkText()"><button class="b ghost" onclick="talkText()">SEND</button><span id="tk-state" class="muted">off</span></div></div>
  <div class="card"><b>Last turn</b> <span id="tk-stack" class="muted"></span><div class="tl" id="tk-tl"></div><div style="height:16px"></div><div id="tk-nums" class="muted"></div>
   <div class="row" style="margin-top:10px"><b>TTS pipeline</b><span class="legend muted"><span class="ck queued">queued</span><span class="ck synth">synthesising</span><span class="ck ready">audio ready</span><span class="ck playing">playing</span><span class="ck done">done</span></span><span id="tk-llm" class="muted" style="margin-left:auto"></span></div></div>
@@ -107,7 +107,7 @@ async function rate(btn,e,v,n){[...btn.parentNode.children].forEach((b,i)=>b.cla
 
 /* ---- TALK ---- */
 let talkWs=null,player=null,turn=null;
-function stackCfg(){return{stt:$('#tk-stt').value,tts:$('#tk-tts').value,voice:$('#tk-voice').value,vad:$('#tk-vad').value,barge_in:$('#tk-barge').checked}}
+function stackCfg(){return{stt:$('#tk-stt').value,tts:$('#tk-tts').value,voice:$('#tk-voice').value,vad:$('#tk-vad').value,pauses:$('#tk-pauses').value,barge_in:$('#tk-barge').checked}}
 class Player{constructor(){this.ctx=new AudioContext({sampleRate:16000});this.t=0;this.nodes=[];this.cur=null;this.timers=[]}
  mark(id){this.cur=id;this.first=true}
  push(buf){const i16=new Int16Array(buf);const b=this.ctx.createBuffer(1,i16.length,16000);const ch=b.getChannelData(0);for(let i=0;i<i16.length;i++)ch[i]=i16[i]/32768;const s=this.ctx.createBufferSource();s.buffer=b;s.connect(this.ctx.destination);const at=Math.max(this.ctx.currentTime+0.02,this.t);s.start(at);this.t=at+b.duration;this.nodes.push(s);s.onended=()=>{this.nodes=this.nodes.filter(n=>n!==s)};
@@ -119,9 +119,10 @@ async function talkToggle(){if(talkWs){talkWs.close();return}
  talkWs=new WebSocket(`ws://${location.host}/ws/talk`);talkWs.binaryType='arraybuffer';player=new Player();
  talkWs.onopen=async()=>{talkWs.send(JSON.stringify(stackCfg()));$('#tk-btn').textContent='STOP';$('#tk-btn').classList.add('red');try{await micStart(b=>{if(talkWs&&talkWs.readyState===1)talkWs.send(b)});$('#tk-state').textContent='listening'}catch(e){$('#tk-state').textContent='mic unavailable · typed mode'}};
  talkWs.onmessage=e=>{if(typeof e.data!=='string'){player.push(e.data);return}const d=JSON.parse(e.data);
-  if(d.type==='speech_end_detected'){player.stop();turn={t0:performance.now(),marks:{}};$('#tk-state').textContent=`heard ${d.audio_s}s · transcribing`;$('#tk-tl').innerHTML='';$('#tk-nums').textContent='';$('#tk-llm').textContent=''}
+  if(d.type==='barge_in'){player.stop();$$('#tk-chat .ck').forEach(e=>{if(!e.classList.contains('done'))e.className='ck cancelled'});$('#tk-state').textContent='interrupted'}
+  else if(d.type==='speech_end_detected'){player.stop();$$('#tk-chat .ck').forEach(e=>{if(!e.classList.contains('done'))e.className='ck cancelled'});turn={t0:performance.now(),marks:{}};$('#tk-state').textContent=`heard ${d.audio_s}s · transcribing`;$('#tk-tl').innerHTML='';$('#tk-nums').textContent='';$('#tk-llm').textContent=''}
   else if(d.type==='chunk'){let el=cur&&cur.querySelector(`[data-ck="${d.id}"]`);if(!el&&cur){el=document.createElement('span');el.dataset.ck=d.id;el.className='ck';el.textContent=d.text;el.title=d.text;const pend=cur.querySelector('.pend');let p=pend.textContent;const i=p.indexOf(d.text);pend.textContent=i>=0?p.slice(i+d.text.length):'';cur.insertBefore(el,pend);cur.insertBefore(document.createTextNode(' '),pend)}if(!el)return;
-   if(d.state==='audio')player.mark(d.id);else if(d.state==='ready'){el.title=`${d.text}\nsynth ${d.synth_ms} ms · ${d.audio_s}s audio`;if(!el.classList.contains('playing'))chunkState(d.id,'ready');player.scheduleDone(d.id)}else chunkState(d.id,d.state)}
+   if(d.state==='audio')player.mark(d.id);else if(d.state==='ready'){el.title=`${d.text}\nsynth ${d.synth_ms} ms · ${d.audio_s}s audio · pause ${d.pause_ms} ms`;if(!el.classList.contains('playing'))chunkState(d.id,'ready');player.scheduleDone(d.id)}else chunkState(d.id,d.state)}
   else if(d.type==='llm_done')$('#tk-llm').textContent=`LLM finished at ${d.t} ms`;
   else if(d.type==='transcript'){if(!turn)turn={t0:performance.now(),marks:{}};if(d.t!=null)mark('transcript',d.t);addChat('u',d.text||'(nothing)');$('#tk-state').textContent='thinking';cur=addChat('p','');cur.insertAdjacentHTML('beforeend','<span class="pend"></span>')}
   else if(d.type==='first_token')mark('first token',d.t);else if(d.type==='first_audio'){mark('first audio',d.t);$('#tk-state').textContent='speaking'}
@@ -129,7 +130,7 @@ async function talkToggle(){if(talkWs){talkWs.close();return}
   else if(d.type==='speech_end'){mark('done',d.t_done);$('#tk-state').textContent=d.cancelled?'interrupted · listening':'listening';$('#tk-stack').textContent=`${stackCfg().stt} + ${stackCfg().tts}/${stackCfg().voice} + ${stackCfg().vad}`;$('#tk-nums').textContent=`transcript ${d.t_transcript??'-'} ms · first token ${d.t_first_token??'-'} ms · first audio ${d.t_first_audio??'-'} ms · done ${d.t_done??'-'} ms`}
   else if(d.type==='error'){addChat('u','⚠ '+d.message).className='red'}};
  talkWs.onclose=()=>{micStop();player&&player.stop();talkWs=null;$('#tk-btn').textContent='START';$('#tk-btn').classList.remove('red');$('#tk-state').textContent='off'};
- ['#tk-stt','#tk-tts','#tk-voice','#tk-vad','#tk-barge'].forEach(s=>$(s).onchange=()=>talkWs&&talkWs.send(JSON.stringify({type:'config',...stackCfg()})))}
+ ['#tk-stt','#tk-tts','#tk-voice','#tk-vad','#tk-pauses','#tk-barge'].forEach(s=>$(s).onchange=()=>talkWs&&talkWs.send(JSON.stringify({type:'config',...stackCfg()})))}
 let cur=null;
 function addChat(cls,text){const d=document.createElement('div');d.className=cls;d.textContent=(cls==='u'?'you  ':'pixel  ')+text;$('#tk-chat').appendChild(d);$('#tk-chat').scrollTop=1e9;return d}
 function mark(label,ms){if(ms==null)return;const tl=$('#tk-tl');const x=Math.min(100,ms/3000*100);tl.insertAdjacentHTML('beforeend',`<i style="left:${x}%"></i><span style="left:${x}%">${label} ${ms}</span>`)}
