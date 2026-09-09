@@ -145,6 +145,7 @@ async def ws_talk(ws: WebSocket):
     history: list[dict] = []
     turn_task: asyncio.Task | None = None
     cancel = asyncio.Event()
+    chunk_seq = [0]                                                     # chunk ids unique across the session
 
     async def send(**d): await ws.send_text(json.dumps(d))
 
@@ -158,12 +159,12 @@ async def ws_talk(ws: WebSocket):
                 if not text or len(text.split()) < 1: await send(type="transcript", text="", note="nothing recognised"); return
             await send(type="transcript", text=text, t=stamps.get("t_transcript"))
             history.append({"role": "user", "content": text})
-            ch = Chunker(); reply = ""; first_tok = True; first_audio = True; nchunk = 0
+            ch = Chunker(); reply = ""; first_tok = True; first_audio = True
             tts_q: asyncio.Queue = asyncio.Queue()
             def ms(): return round((time.perf_counter() - t_eos) * 1000)
             async def enqueue(text):
-                nonlocal nchunk
-                nchunk += 1; await send(type="chunk", id=nchunk, text=text, state="queued", t=ms()); await tts_q.put((nchunk, text))
+                chunk_seq[0] += 1; cid = chunk_seq[0]
+                await send(type="chunk", id=cid, text=text, state="queued", t=ms()); await tts_q.put((cid, text))
             async def speaker():
                 nonlocal first_audio
                 while True:
