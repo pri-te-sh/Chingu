@@ -1,0 +1,133 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Pixel Voice Lab</title>
+<style>
+:root{--bg:#0b0e14;--card:#151a24;--edge:#2a3242;--tx:#e8ecf3;--mut:#8a94a8;--amber:#f5b301;--cyan:#2fd3ff;--green:#55e07a;--red:#ff5c6c}
+body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.45 ui-monospace,Menlo,monospace}
+header{display:flex;gap:18px;align-items:center;padding:12px 20px;border-bottom:1px solid var(--edge)}
+header b{color:var(--amber);font-size:16px}
+nav button{background:none;border:1px solid var(--edge);color:var(--mut);padding:6px 14px;border-radius:6px;cursor:pointer;margin-right:6px}
+nav button.on{color:var(--tx);border-color:var(--amber)}
+main{padding:18px 20px;max-width:1200px;margin:auto}
+section{display:none}section.on{display:block}
+.card{background:var(--card);border:1px solid var(--edge);border-radius:10px;padding:14px 16px;margin-bottom:14px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+label.chk{display:inline-flex;gap:6px;align-items:center;color:var(--mut);margin-right:10px}
+input[type=text],textarea,select{background:#0e1219;border:1px solid var(--edge);color:var(--tx);border-radius:6px;padding:7px 9px;font:inherit}
+textarea{width:100%;box-sizing:border-box;min-height:60px}
+button.b{background:var(--amber);color:#111;border:0;border-radius:6px;padding:8px 14px;font:inherit;font-weight:700;cursor:pointer}
+button.b.ghost{background:transparent;color:var(--tx);border:1px solid var(--edge)} button.b.red{background:var(--red);color:#fff}
+button:disabled{opacity:.45;cursor:default}
+table{width:100%;border-collapse:collapse}td,th{padding:6px 8px;border-bottom:1px solid var(--edge);text-align:left;vertical-align:top}th{color:var(--mut);font-weight:400}
+.muted{color:var(--mut)}.amber{color:var(--amber)}.cyan{color:var(--cyan)}.green{color:var(--green)}.red{color:var(--red)}
+.meter{height:10px;background:#0e1219;border-radius:5px;overflow:hidden;flex:1}.meter i{display:block;height:100%;background:var(--green);width:0;transition:width .08s}
+.tl{position:relative;height:14px;background:#0e1219;border-radius:7px;margin:6px 0}.tl i{position:absolute;top:0;bottom:0;width:2px;background:var(--amber)}.tl span{position:absolute;top:16px;font-size:10px;color:var(--mut);transform:translateX(-50%)}
+.stars button{background:none;border:0;color:var(--edge);font-size:18px;cursor:pointer;padding:0 2px}.stars button.on{color:var(--amber)}
+.chat{max-height:340px;overflow:auto}.chat div{padding:4px 0}.chat .u{color:var(--cyan)}.chat .p{color:var(--tx)}
+.diff del{color:var(--red);text-decoration:line-through}.diff ins{color:var(--green);text-decoration:none}
+small{color:var(--mut)}
+</style></head><body>
+<header><b>PIXEL VOICE LAB</b><nav><button class="on" data-t="hear">HEAR</button><button data-t="speak">SPEAK</button><button data-t="talk">TALK</button><button data-t="results">RESULTS</button></nav><span id="hdr" class="muted" style="margin-left:auto"></span></header>
+<main>
+
+<section id="hear" class="on">
+ <div class="card"><div class="row"><b>Engines</b><span id="hear-stt"></span><span style="margin-left:auto"></span><b>End-pointer</b><select id="hear-vad"><option>energy</option><option>silero</option></select><button class="b" id="hear-btn" onclick="hearToggle()">START MIC</button></div>
+  <div class="row" style="margin-top:10px"><span class="muted" style="width:60px">energy</span><div class="meter"><i id="m-energy"></i></div><span class="muted" style="width:60px;text-align:right">silero</span><div class="meter"><i id="m-silero" style="background:var(--cyan)"></i></div><span id="hear-state" class="muted" style="width:150px;text-align:right">idle</span></div></div>
+ <div class="card"><div class="row"><b>Phrase</b><span id="phrase" class="amber" style="flex:1"></span><button class="b ghost" onclick="nextPhrase(-1)">‹</button><button class="b ghost" onclick="nextPhrase(1)">›</button><label class="chk"><input type="checkbox" id="use-ref" checked>score against phrase</label></div><small>Read the phrase, pause; every selected engine transcribes the same utterance. Skip with › to use free speech.</small></div>
+ <div class="card"><table id="hear-tbl"><thead><tr><th style="width:120px">engine</th><th style="width:80px">ms</th><th style="width:60px">WER</th><th>transcript</th></tr></thead><tbody></tbody></table><div class="row" style="margin-top:8px"><audio id="hear-audio" controls style="height:28px"></audio><span id="hear-meta" class="muted"></span></div></div>
+</section>
+
+<section id="speak">
+ <div class="card"><textarea id="sp-text">Morning! You've got Sarah at three thirty, and it's going to rain this afternoon, so grab the umbrella.</textarea>
+  <div class="row" style="margin-top:8px"><span id="sp-voices"></span><span style="margin-left:auto"></span><button class="b" id="sp-btn" onclick="speakAll()">SYNTHESISE ALL</button></div><small>Tick the voices to compare. TTFA = time to first audio (what the user perceives as reaction time). RTF &lt; 1 means faster than real time. Rate what you hear, 1–5.</small></div>
+ <div class="card"><table id="sp-tbl"><thead><tr><th style="width:170px">voice</th><th style="width:70px">TTFA</th><th style="width:70px">total</th><th style="width:60px">RTF</th><th style="width:220px">play</th><th>rate</th></tr></thead><tbody></tbody></table></div>
+</section>
+
+<section id="talk">
+ <div class="card"><div class="row"><b>Stack</b> STT <select id="tk-stt"></select> TTS <select id="tk-tts"></select> <select id="tk-voice"></select> VAD <select id="tk-vad"><option>energy</option><option>silero</option></select><label class="chk"><input type="checkbox" id="tk-barge" checked>barge-in</label><span style="margin-left:auto"></span><button class="b" id="tk-btn" onclick="talkToggle()">START</button><button class="b ghost" onclick="talkReset()">RESET CHAT</button></div>
+  <div class="row" style="margin-top:8px"><input type="text" id="tk-text" placeholder="or type instead of talking…" style="flex:1" onkeydown="if(event.key==='Enter')talkText()"><button class="b ghost" onclick="talkText()">SEND</button><span id="tk-state" class="muted">off</span></div></div>
+ <div class="card"><b>Last turn</b> <span id="tk-stack" class="muted"></span><div class="tl" id="tk-tl"></div><div style="height:16px"></div><div id="tk-nums" class="muted"></div></div>
+ <div class="card chat" id="tk-chat"></div>
+</section>
+
+<section id="results">
+ <div class="card"><div class="row"><b>Aggregates</b> <small>medians over everything recorded in results/*.jsonl</small><button class="b ghost" style="margin-left:auto" onclick="loadResults()">REFRESH</button></div>
+  <h4 class="muted">STT</h4><table id="r-stt"></table><h4 class="muted">TTS</h4><table id="r-tts"></table><h4 class="muted">Whole turns (ms after end of speech)</h4><table id="r-turn"></table></div>
+</section>
+</main>
+<script>
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+let ENG={};let PH=[],phi=0;
+$$('nav button').forEach(b=>b.onclick=()=>{$$('nav button').forEach(x=>x.classList.toggle('on',x===b));$$('section').forEach(s=>s.classList.toggle('on',s.id===b.dataset.t));if(b.dataset.t==='results')loadResults()});
+async function init(){ENG=await (await fetch('/api/engines')).json();PH=ENG.phrases;showPhrase();
+ $('#hear-stt').innerHTML=ENG.stt.map(e=>`<label class="chk" title="${esc(e.note)}"><input type="checkbox" value="${e.name}" ${['fw-base','parakeet-0.6b','mlx-turbo'].includes(e.name)?'checked':''}>${e.name}</label>`).join('');
+ $('#sp-voices').innerHTML=ENG.tts.flatMap(e=>e.voices.map(v=>`<label class="chk" title="${esc(e.note)}"><input type="checkbox" data-e="${e.name}" value="${v}" ${(e.name==='piper'&&v==='en_US-lessac-medium')||(e.name==='kokoro'&&['af_heart','am_michael','bf_emma'].includes(v))?'checked':''}>${e.name}/${v}</label>`)).join('');
+ $('#tk-stt').innerHTML=ENG.stt.map(e=>`<option ${e.name==='parakeet-0.6b'?'selected':''}>${e.name}</option>`).join('');$('#tk-tts').innerHTML=ENG.tts.map(e=>`<option ${e.name==='kokoro'?'selected':''}>${e.name}</option>`).join('');fillVoices();$('#tk-tts').onchange=fillVoices;
+ $('#hdr').textContent=`LLM ${ENG.model}${ENG.llm_ready?'':' · NO OLLAMA_API_KEY IN voicelab/.env'}`;if(!ENG.llm_ready)$('#hdr').className='red'}
+function fillVoices(){const e=ENG.tts.find(x=>x.name===$('#tk-tts').value);$('#tk-voice').innerHTML=e.voices.map(v=>`<option>${v}</option>`).join('')}
+function showPhrase(){$('#phrase').textContent=PH[phi]||''}function nextPhrase(d){phi=(phi+d+PH.length)%PH.length;showPhrase()}
+
+/* ---- mic: 16 kHz PCM16 frames over a WebSocket ---- */
+let mic=null;
+async function micStart(onFrame){const ctx=new AudioContext({sampleRate:16000});const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:1}});
+ const src=ctx.createMediaStreamSource(stream);const proc=ctx.createScriptProcessor(1024,1,1);proc.onaudioprocess=e=>{const f=e.inputBuffer.getChannelData(0);const b=new Int16Array(f.length);for(let i=0;i<f.length;i++)b[i]=Math.max(-32768,Math.min(32767,f[i]*32767));onFrame(b.buffer)};src.connect(proc);proc.connect(ctx.destination);mic={ctx,stream,proc};if(ctx.state==='suspended')await ctx.resume()}
+function micStop(){if(!mic)return;mic.proc.disconnect();mic.stream.getTracks().forEach(t=>t.stop());mic.ctx.close();mic=null}
+
+/* ---- HEAR ---- */
+let hearWs=null;
+async function hearToggle(){if(hearWs){hearWs.close();return}
+ const stt=$$('#hear-stt input:checked').map(i=>i.value);if(!stt.length)return alert('pick at least one engine');
+ hearWs=new WebSocket(`ws://${location.host}/ws/hear`);hearWs.binaryType='arraybuffer';
+ hearWs.onopen=async()=>{hearWs.send(JSON.stringify({stt,vad:$('#hear-vad').value,ref:$('#use-ref').checked?PH[phi]:''}));await micStart(b=>hearWs.readyState===1&&hearWs.send(b));$('#hear-btn').textContent='STOP MIC';$('#hear-btn').classList.add('red')};
+ hearWs.onmessage=e=>{if(typeof e.data!=='string'){$('#hear-audio').src=URL.createObjectURL(new Blob([e.data],{type:'audio/wav'}));return}
+  const d=JSON.parse(e.data);
+  if(d.type==='level'){$('#m-energy').style.width=Math.min(100,d.energy*100)+'%';$('#m-silero').style.width=Math.min(100,d.silero*100)+'%';$('#hear-state').textContent=(d.speaking?'● speaking':'listening')+` · ${d.starts} start${d.starts===1?'':'s'}`;$('#hear-state').className=d.speaking?'green':'muted'}
+  else if(d.type==='utterance'){$('#hear-meta').textContent=`utterance ${d.audio_s}s · transcribing…`;$('#hear-tbl tbody').innerHTML=''}
+  else if(d.type==='results'){const ref=$('#use-ref').checked?PH[phi]:null;$('#hear-meta').textContent=`utterance ${d.audio_s}s`;
+   $('#hear-tbl tbody').innerHTML=d.results.map(r=>`<tr><td>${r.engine}</td><td class="${r.ms<400?'green':r.ms<900?'amber':'red'}">${r.ms??''}</td><td class="${r.wer===0?'green':r.wer>0.2?'red':''}">${r.wer??''}</td><td class="diff">${r.error?'<span class=red>'+esc(r.error)+'</span>':(ref?diff(ref,r.text):esc(r.text))}</td></tr>`).join('');
+   if(ref&&$('#use-ref').checked){nextPhrase(1);hearWs.send(JSON.stringify({type:'config',ref:PH[phi],vad:$('#hear-vad').value}))}}};
+ hearWs.onclose=()=>{micStop();hearWs=null;$('#hear-btn').textContent='START MIC';$('#hear-btn').classList.remove('red');$('#hear-state').textContent='idle'};
+ $('#hear-vad').onchange=()=>hearWs&&hearWs.send(JSON.stringify({type:'config',vad:$('#hear-vad').value,ref:$('#use-ref').checked?PH[phi]:''}))}
+function norm(s){return s.toLowerCase().replace(/[^a-z0-9' ]/g,'').split(/\s+/).filter(Boolean)}
+function diff(ref,hyp){const a=norm(ref),b=norm(hyp);const m=Array.from({length:a.length+1},()=>new Array(b.length+1).fill(0));for(let i=a.length-1;i>=0;i--)for(let j=b.length-1;j>=0;j--)m[i][j]=a[i]===b[j]?m[i+1][j+1]+1:Math.max(m[i+1][j],m[i][j+1]);
+ let i=0,j=0,out=[];while(i<a.length&&j<b.length){if(a[i]===b[j]){out.push(esc(b[j]));i++;j++}else if(m[i+1][j]>=m[i][j+1]){out.push('<del>'+esc(a[i])+'</del>');i++}else{out.push('<ins>'+esc(b[j])+'</ins>');j++}}
+ while(i<a.length)out.push('<del>'+esc(a[i++])+'</del>');while(j<b.length)out.push('<ins>'+esc(b[j++])+'</ins>');return out.join(' ')}
+
+/* ---- SPEAK ---- */
+async function speakAll(){const text=$('#sp-text').value.trim();if(!text)return;const picks=$$('#sp-voices input:checked');const tb=$('#sp-tbl tbody');tb.innerHTML='';$('#sp-btn').disabled=true;
+ for(const p of picks){const e=p.dataset.e,v=p.value;const tr=document.createElement('tr');tr.innerHTML=`<td>${e}/${v}</td><td colspan=5 class="muted">synthesising…</td>`;tb.appendChild(tr);
+  try{const r=await fetch('/api/tts',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({engine:e,voice:v,text})});if(!r.ok)throw new Error((await r.json()).error);
+   const ttfa=+r.headers.get('X-TTFA-ms'),tot=+r.headers.get('X-Total-ms'),dur=+r.headers.get('X-Audio-s');const url=URL.createObjectURL(await r.blob());
+   tr.innerHTML=`<td>${e}/${v}</td><td class="${ttfa<300?'green':ttfa<800?'amber':'red'}">${ttfa}</td><td>${tot}</td><td class="${tot/1000/dur<0.5?'green':tot/1000/dur<1?'amber':'red'}">${(tot/1000/dur).toFixed(2)}</td><td><audio controls src="${url}" style="height:28px;width:210px"></audio></td><td class="stars">${[1,2,3,4,5].map(n=>`<button onclick="rate(this,'${e}','${v}',${n})">★</button>`).join('')}</td>`}
+  catch(ex){tr.innerHTML=`<td>${e}/${v}</td><td colspan=5 class="red">${esc(ex.message)}</td>`}}
+ $('#sp-btn').disabled=false}
+async function rate(btn,e,v,n){[...btn.parentNode.children].forEach((b,i)=>b.classList.toggle('on',i<n));await fetch('/api/rate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind:'tts',engine:e,voice:v,rating:n,text:$('#sp-text').value.trim().slice(0,120)})})}
+
+/* ---- TALK ---- */
+let talkWs=null,player=null,turn=null;
+function stackCfg(){return{stt:$('#tk-stt').value,tts:$('#tk-tts').value,voice:$('#tk-voice').value,vad:$('#tk-vad').value,barge_in:$('#tk-barge').checked}}
+class Player{constructor(){this.ctx=new AudioContext({sampleRate:16000});this.t=0;this.nodes=[]}
+ push(buf){const i16=new Int16Array(buf);const b=this.ctx.createBuffer(1,i16.length,16000);const ch=b.getChannelData(0);for(let i=0;i<i16.length;i++)ch[i]=i16[i]/32768;const s=this.ctx.createBufferSource();s.buffer=b;s.connect(this.ctx.destination);const at=Math.max(this.ctx.currentTime+0.02,this.t);s.start(at);this.t=at+b.duration;this.nodes.push(s);s.onended=()=>{this.nodes=this.nodes.filter(n=>n!==s)}}
+ stop(){this.nodes.forEach(n=>{try{n.stop()}catch(e){}});this.nodes=[];this.t=0}
+ get playing(){return this.nodes.length>0}}
+async function talkToggle(){if(talkWs){talkWs.close();return}
+ talkWs=new WebSocket(`ws://${location.host}/ws/talk`);talkWs.binaryType='arraybuffer';player=new Player();
+ talkWs.onopen=async()=>{talkWs.send(JSON.stringify(stackCfg()));await micStart(b=>{if(talkWs.readyState!==1)return;talkWs.send(b)});$('#tk-btn').textContent='STOP';$('#tk-btn').classList.add('red');$('#tk-state').textContent='listening'};
+ talkWs.onmessage=e=>{if(typeof e.data!=='string'){player.push(e.data);return}const d=JSON.parse(e.data);
+  if(d.type==='speech_end_detected'){player.stop();turn={t0:performance.now(),marks:{}};$('#tk-state').textContent=`heard ${d.audio_s}s · transcribing`;$('#tk-tl').innerHTML='';$('#tk-nums').textContent=''}
+  else if(d.type==='transcript'){if(!turn)turn={t0:performance.now(),marks:{}};if(d.t!=null)mark('transcript',d.t);addChat('u',d.text||'(nothing)');$('#tk-state').textContent='thinking';cur=addChat('p','')}
+  else if(d.type==='first_token')mark('first token',d.t);else if(d.type==='first_audio'){mark('first audio',d.t);$('#tk-state').textContent='speaking'}
+  else if(d.type==='delta'&&cur)cur.textContent+=d.text;
+  else if(d.type==='speech_end'){mark('done',d.t_done);$('#tk-state').textContent=d.cancelled?'interrupted · listening':'listening';$('#tk-stack').textContent=`${stackCfg().stt} + ${stackCfg().tts}/${stackCfg().voice} + ${stackCfg().vad}`;$('#tk-nums').textContent=`transcript ${d.t_transcript??'-'} ms · first token ${d.t_first_token??'-'} ms · first audio ${d.t_first_audio??'-'} ms · done ${d.t_done??'-'} ms`}
+  else if(d.type==='error'){addChat('u','⚠ '+d.message).className='red'}};
+ talkWs.onclose=()=>{micStop();player&&player.stop();talkWs=null;$('#tk-btn').textContent='START';$('#tk-btn').classList.remove('red');$('#tk-state').textContent='off'};
+ ['#tk-stt','#tk-tts','#tk-voice','#tk-vad','#tk-barge'].forEach(s=>$(s).onchange=()=>talkWs&&talkWs.send(JSON.stringify({type:'config',...stackCfg()})))}
+let cur=null;
+function addChat(cls,text){const d=document.createElement('div');d.className=cls;d.textContent=(cls==='u'?'you  ':'pixel  ')+text;$('#tk-chat').appendChild(d);$('#tk-chat').scrollTop=1e9;return d}
+function mark(label,ms){if(ms==null)return;const tl=$('#tk-tl');const x=Math.min(100,ms/3000*100);tl.insertAdjacentHTML('beforeend',`<i style="left:${x}%"></i><span style="left:${x}%">${label} ${ms}</span>`)}
+function talkText(){const t=$('#tk-text').value.trim();if(!t||!talkWs)return;player.stop();turn={t0:performance.now()};$('#tk-tl').innerHTML='';talkWs.send(JSON.stringify({type:'text',text:t}));$('#tk-text').value=''}
+function talkReset(){talkWs&&talkWs.send(JSON.stringify({type:'reset'}));$('#tk-chat').innerHTML=''}
+
+/* ---- RESULTS ---- */
+async function loadResults(){const R=await (await fetch('/api/results')).json();const tbl=(el,cols,rows)=>$(el).innerHTML=`<tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr>`+rows.map(r=>`<tr>${cols.map(c=>`<td>${r[c]??'-'}</td>`).join('')}</tr>`).join('');
+ tbl('#r-stt',['engine','n','ms','wer'],R.stt.sort((a,b)=>(a.wer??9)-(b.wer??9)||a.ms-b.ms));tbl('#r-tts',['engine','n','ttfa','rtf','rating','votes'],R.tts.sort((a,b)=>(b.rating??0)-(a.rating??0)));tbl('#r-turn',['stack','n','eos_to_transcript','eos_to_first_token','eos_to_first_audio','eos_to_done'],R.turns)}
+init();
+</script></body></html>

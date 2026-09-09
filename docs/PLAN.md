@@ -88,7 +88,12 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 - [ ] CI (GitHub Actions): build on tag, publish binaries to the brain (needs P3 public URL)
 - [x] Device settings pass: 3×3 menu (+ Update tile with badge), every value clipped with "..." (`fit()`), Portal/Setup hints wrapped inside 320×240, System shows firmware + device id instead of the serial cheat-sheet
 
-### P3 — Cutover to Oracle
+### P2c — Voice quality lab (before hosting)  → `docs/VOICE_LAB.md`
+- [ ] `voicelab/` scaffold: engine registries (STT: faster-whisper base/small, mlx-whisper large-v3-turbo, Parakeet-TDT 0.6B; TTS: Piper, Kokoro-82M, Fish/OpenAudio S1-mini, Chatterbox; VAD: energy vs Silero), bench CLI
+- [ ] Test-bed web app: HEAR (multi-engine STT + VAD meter), SPEAK (A/B TTS + ratings), TALK (full pipeline, streaming, barge-in, per-turn timeline), RESULTS
+- [ ] Decide engines + voice; port winners into the worker behind `pixel/engines/*`; measure end-of-speech → first word on the simulator and the board
+
+### P3 — Cutover to a VM (Hetzner CX23 or home box + Cloudflare Tunnel; Oracle dropped)
 - [ ] Oracle A1 VM (Ubuntu 24.04 arm64), PAYG upgrade, firewall; `bootstrap.sh` (docker, fail2ban, unattended-upgrades, clone, compose up)
 - [ ] Domain + Caddy TLS; Google OAuth client; `.env` on the box
 - [ ] Nightly `pg_dump` → Backblaze B2; weekly restore test; Uptime Kuma alerts
