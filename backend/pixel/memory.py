@@ -183,7 +183,8 @@ def system_prompt() -> str:
         lines += [f"- {f['text']}" + (f" (around {f['due']})" if f.get("due") else "") for f in fu[:6]]
     if settings.get().get("tools_enabled", True):
         lines.append("\nTools: use web_search whenever the answer depends on the real world right now (weather, news, scores, prices, opening hours, facts you are not sure of); "
-                     "use remember when the owner shares something durable or asks you to remember; use follow_up for things to check on later. "
+                     "You MUST call remember when the owner asks you to remember something or tells you a durable fact about themselves, and follow_up when they ask to be reminded - never claim you saved or noted something without actually calling the tool. "
+                     "When you decide to use a tool, first say ONE short natural sentence about what you are doing, in your own voice (e.g. 'Let me see what the weather's doing over there.'), then call the tool. "
                      "After a tool result, answer in one or two spoken sentences - never read out URLs or lists.")
     lines.append(
         "\nEvery reply MUST start with an expression tag in square brackets: the expression name and an intensity 0-1, e.g. \"[happy 0.8] \". "

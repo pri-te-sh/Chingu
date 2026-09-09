@@ -63,6 +63,50 @@ async def follow_up(text: str, due: str | None = None) -> str:
     return f"Noted to follow up: {text}"
 
 
+# ---- narration: what Pixel says out loud while it works (used when the model didn't narrate itself) ----
+import random
+BEFORE = {
+    "web_search": ["Hmm, let me look that up.", "One sec, let me check {q}.", "Let me see what I can find on {q}.", "Good question, give me a moment.", "Let me have a quick look."],
+    "web_fetch":  ["Let me read that page.", "Opening that up, one second.", "Let me skim through that."],
+    "remember":   ["Noted, writing that down.", "Got it, I'll remember that.", "Okay, adding that to what I know about you."],
+    "follow_up":  ["I'll make a note to ask you about that.", "Reminding myself to check on that later."],
+}
+AFTER = {
+    "web_search": ["Okay, found it.", "Right, here's what I've got.", "Got something.", "Alright."],
+    "web_fetch":  ["Okay, read it.", "Right, got the gist."],
+}
+FAILED = ["Hmm, that didn't work, let me think.", "I couldn't reach that, sorry."]
+
+
+def _short_query(args) -> str:
+    q = ""
+    if isinstance(args, dict):
+        q = args.get("query") or args.get("url") or ""
+    q = re.sub(r"^(current|latest|today's|todays)\s+", "", str(q), flags=re.I)
+    q = re.sub(r"https?://(www\.)?", "", q).split("/")[0]
+    return q[:40].rstrip(" .")
+
+
+def narrate_before(calls: list[dict]) -> tuple[str, str]:
+    """(sentence, expression) to say when tool calls start."""
+    names = [c.get("function", {}).get("name") for c in calls]
+    lead = next((n for n in names if n in ("web_search", "web_fetch")), names[0] if names else "web_search")
+    tmpl = random.choice(BEFORE.get(lead, BEFORE["web_search"]))
+    q = _short_query(next((c.get("function", {}).get("arguments") for c in calls if c.get("function", {}).get("name") == lead), {}))
+    text = tmpl.format(q=q) if q else re.sub(r"\s*\{q\}.*$", ".", tmpl).replace("check .", "check.")
+    return text, ("curious" if lead.startswith("web") else "happy")
+
+
+def narrate_after(results: list[tuple[str, str, str]]) -> tuple[str, str] | None:
+    """Optional bridge sentence once results are back (web tools only; memory tools need none)."""
+    web = [r for r in results if r[0] in ("web_search", "web_fetch")]
+    if not web:
+        return None
+    if all(r[2].startswith("Tool failed") or r[2] == "No results." for r in web):
+        return random.choice(FAILED), "sad"
+    return random.choice(AFTER[web[0][0]]), "thinking"
+
+
 REGISTRY = {"web_search": web_search, "web_fetch": web_fetch, "remember": remember, "follow_up": follow_up}
 
 

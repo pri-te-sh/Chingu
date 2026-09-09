@@ -127,6 +127,7 @@ async def respond(ws: WebSocket | None, device: str, user_text: str, want_audio=
     audio_bytes = 0
     tools_used: list[dict] = []
     tool_defs = tools.definitions() if cfg.get("tools_enabled", True) else None
+    had_expr = False
 
     async def speak(text: str):
         nonlocal speech_started, t_audio, audio_bytes
@@ -143,39 +144,77 @@ async def respond(ws: WebSocket | None, device: str, user_text: str, want_audio=
         for i in range(0, len(pcm), C.AUDIO_FRAME_BYTES):
             await ws.send_bytes(pcm[i:i + C.AUDIO_FRAME_BYTES])
 
+    steps: list[str] = []          # what Pixel said while working (narration), for the log
+
+    async def say_step(text: str, expression: str):
+        """Speak a narration line immediately (outside the tagged reply stream) and log it."""
+        nonlocal pending
+        text = text.strip()
+        if not text:
+            return
+        steps.append(text)
+        if ws:
+            await send_json(ws, type="expression", name=expression, intensity=0.8)
+            await send_json(ws, type="step", text=text)
+        await speak(text)
+
     async def stream_with_tools():
-        """Stream the reply; if the model calls tools, run them, feed results back, and stream again (max 2 rounds)."""
-        nonlocal messages
+        """Stream the reply; if the model calls tools, narrate, run them, feed results back, stream again (max 2 rounds)."""
+        nonlocal messages, tagged, tag_done
+        narrate = cfg.get("tool_narration", True)
         for _round in range(3):
-            calls = None
+            calls, said = None, ""
             async for kind, payload in llm.stream_reply(memory.system_prompt(), messages, cfg["chat_model"], cfg["chat_think"], tool_defs):
                 if kind == "delta":
+                    said += payload
                     yield payload
                 else:
                     calls = payload
             if not calls or _round == 2:
                 return
-            # tell the client (face) what is happening, and speak a short filler once so the pause feels alive
             if ws:
-                await send_json(ws, type="expression", name="thinking", intensity=0.9)
                 for c in calls:
                     await send_json(ws, type="tool", name=c.get("function", {}).get("name"), args=c.get("function", {}).get("arguments"))
-            if _round == 0 and cfg.get("tool_filler") and any(c.get("function", {}).get("name", "").startswith("web") for c in calls):
-                await speak(cfg["tool_filler"])
+            said_words = re.sub(r"^\s*\[[^\]]*\]?\s*", "", said).strip()   # narration minus any (possibly partial) expression tag
+            if narrate and not said_words:
+                text, expr_ = tools.narrate_before(calls)
+                await say_step(text, expr_)
+            elif ws:
+                await send_json(ws, type="expression", name="curious", intensity=0.8)
             results = await asyncio.gather(*(tools.run(c) for c in calls))
-            messages = messages + [{"role": "assistant", "content": "", "tool_calls": calls}]
+            if narrate:
+                bridge = tools.narrate_after(results)
+                if bridge:
+                    await say_step(*bridge)
+            messages = messages + [{"role": "assistant", "content": said or "", "tool_calls": calls}]
             for (name, args, res), c in zip(results, calls):
                 tools_used.append({"name": name, "args": args, "result": res[:300]})
                 print(f"[pixel] tool {name}({args}) -> {res[:120]!r}")
                 messages = messages + [{"role": "tool", "tool_name": name, "content": res}]
+            # the model's pre-tool sentence was already streamed: speak it as a step and start the final reply clean
+            if said_words:
+                yield "\u0000FLUSH"
+            else:
+                tagged = ""; tag_done = False          # drop a bare/partial tag so the final reply parses cleanly
 
     async for delta in stream_with_tools():
+        if delta == "\u0000FLUSH":
+            # the model's own pre-tool sentence: speak it now as a step, then start the final reply clean
+            if pending.strip():
+                steps.append(pending.strip())
+                await speak(pending)
+            pending, tagged, spoken_all = "", "", ""
+            tag_done = False; had_expr = True
+            continue
         if not tag_done:
             tagged += delta
             parsed = llm.parse_tag(tagged)
             if parsed is None:
                 continue
-            expr, inten, rest = parsed
+            name_, inten_, rest = parsed
+            if had_expr and not tagged.lstrip().startswith("["):
+                name_, inten_ = expr, inten          # untagged continuation after tools: keep the expression we already showed
+            expr, inten = name_, inten_
             tag_done = True
             t_expr = time.time() - t0
             if ws: await send_json(ws, type="expression", name=expr, intensity=inten)
@@ -192,12 +231,14 @@ async def respond(ws: WebSocket | None, device: str, user_text: str, want_audio=
     if speech_started:
         await send_json(ws, type="speech_end")
     spoken_all = spoken_all.strip()
+    if not spoken_all and steps:                 # model answered before the tool ran and had nothing to add
+        spoken_all = steps.pop()
     t_done = time.time() - t0
     if ws: await send_json(ws, type="reply", text=spoken_all)
 
     turn = memory.log_turn({"device": device, "user": user_text, "reply": spoken_all, "expr": expr, "intensity": inten,
                             "t_expr": round((t_expr or 0) * 1000), "t_audio": round((t_audio or 0) * 1000), "t_done": round(t_done * 1000),
-                            "audio_s": round(audio_bytes / 32000, 1), "model": cfg["chat_model"], "tools": tools_used})
+                            "audio_s": round(audio_bytes / 32000, 1), "model": cfg["chat_model"], "tools": tools_used, "steps": steps})
     latency_log.append({k: turn[k] for k in ("ts", "t_expr", "t_audio", "t_done")}); del latency_log[:-50]
     print(f"[pixel] {device}: {expr} {inten:.1f} @{turn['t_expr']}ms, audio @{turn['t_audio']}ms, done {turn['t_done']}ms: {spoken_all!r}")
     asyncio.create_task(memory.extract_after_turn())

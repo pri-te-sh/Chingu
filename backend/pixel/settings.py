@@ -20,7 +20,7 @@ DEFAULTS = {
     "tools_enabled": True,
     "tools_web": True,
     "web_results": 3,
-    "tool_filler": "Let me check.",
+    "tool_narration": True,
 }
 
 _cfg: dict | None = None
