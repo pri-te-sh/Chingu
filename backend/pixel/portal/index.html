@@ -67,7 +67,7 @@ input[type=checkbox]{width:18px;height:18px;appearance:none;border:3px solid var
 <header><h1><canvas id="logo" width="22" height="15" style="width:66px;height:45px"></canvas><span id="title">PIXEL</span></h1>
 <nav id="nav"></nav><div id="chips"><span id="devchip"><i class="led"></i>NO DEVICE</span><span id="modelchip" class="cyan"></span><button id="theme" onclick="toggleTheme()" title="dark / light">☾</button></div></header>
 <main>
-<div id="login" class="px card" style="display:none"><h3>ACCESS TOKEN</h3><p class="muted" style="margin:0 0 10px">On the device: hold BOOT → <b>Portal</b>. Scan the QR code, or type the token shown there.</p><input id="tok" placeholder="ABC123" maxlength="12" style="font-family:'Press Start 2P';font-size:20px;letter-spacing:.3em;text-transform:uppercase;text-align:center" onkeydown="if(event.key==='Enter')saveTok()"><div style="margin-top:16px"><button class="btn" onclick="saveTok()">ENTER</button></div></div>
+<div id="login" class="px card" style="display:none"><h3>ACCESS TOKEN</h3><p class="muted" style="margin:0 0 10px">On the device: hold BOOT → <b>Portal</b>. Scan the QR code, or type the token shown there.</p><div id="login-msg" class="red" style="min-height:24px"></div><input id="tok" placeholder="ABC123" maxlength="12" style="font-family:'Press Start 2P';font-size:20px;letter-spacing:.3em;text-transform:uppercase;text-align:center" onkeydown="if(event.key==='Enter')saveTok()"><div style="margin-top:16px"><button class="btn" onclick="saveTok()">ENTER</button></div></div>
 
 <!-- DASHBOARD -->
 <section id="dashboard">
@@ -131,8 +131,8 @@ let TOK=localStorage.getItem('pixel_token')||'';let CFG={},DEF={},TURNS=[],FACTS
 const pages={dashboard:'DASHBOARD',log:'LOG',memory:'MEMORY',brain:'BRAIN',device:'DEVICE'};
 $('#nav').innerHTML=Object.entries(pages).map(([p,l])=>`<button data-p="${p}" onclick="go('${p}')">${l}</button>`).join('');
 function go(p){Object.keys(pages).forEach(x=>{$('#'+x).classList.toggle('on',x===p);document.querySelector(`[data-p=${x}]`).classList.toggle('on',x===p)});history.replaceState(null,'','#'+p);({dashboard:loadStatus,log:loadTurns,memory:loadMemory,brain:loadConfig,device:()=>loadConfig().then(loadStatus)})[p]().catch(()=>{})}
-async function api(path,opt={}){const r=await fetch('/api'+path,{...opt,headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOK}});if(r.status===401){endSplash(true);$('#login').style.display='block';throw new Error('auth')}if(!r.ok)throw new Error(await r.text());return r.json()}
-function saveTok(){TOK=$('#tok').value.trim().toUpperCase();localStorage.setItem('pixel_token',TOK);$('#login').style.display='none';start()}
+async function api(path,opt={}){if(!TOK){endSplash(true);$('#login').style.display='block';throw new Error('auth')}const r=await fetch('/api'+path,{...opt,headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOK}});if(r.status===401||r.status===429){endSplash(true);$('#login').style.display='block';$('#login-msg').textContent=r.status===429?'Too many wrong attempts - wait a few minutes and try again.':(TOK?'That code was not accepted.':'');throw new Error('auth')}if(!r.ok)throw new Error(await r.text());return r.json()}
+function saveTok(){TOK=$('#tok').value.trim().toUpperCase();if(!TOK)return;localStorage.setItem('pixel_token',TOK);$('#login').style.display='none';loadStatus.once=0;start()}
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),1600)}
 const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const fmt=s=>s>=3600?Math.floor(s/3600)+'h '+Math.floor(s%3600/60)+'m':s>=60?Math.floor(s/60)+'m '+s%60+'s':s+'s';

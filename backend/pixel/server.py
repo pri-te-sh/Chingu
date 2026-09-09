@@ -255,7 +255,8 @@ def auth(request: Request):
         raise HTTPException(429, "too many attempts - try again later")
     tok = request.headers.get("authorization", "").removeprefix("Bearer ").strip() or request.cookies.get("pixel_token")
     if tok != C.PIXEL_TOKEN:
-        _fails.setdefault(ip, []).append(time.time())
+        if tok:                                # only real guesses count toward the throttle, not "not logged in yet"
+            _fails.setdefault(ip, []).append(time.time())
         raise HTTPException(401, "bad token")
 
 
