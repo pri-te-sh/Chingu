@@ -37,7 +37,7 @@ memory_volume = modal.Volume.from_name("pixel-memory", create_if_missing=True)
     memory=2048,
     max_containers=1,                     # one brain: the device's WebSocket and its session state live in one process
     scaledown_window=600,                 # stay warm 10 min after the last exchange -> instant follow-ups
-    timeout=60 * 60,                      # a WebSocket session may live up to an hour
+    timeout=600,                          # WS sessions are recycled every 10 min (device auto-reconnects) so deploys drain fast
     secrets=[modal.Secret.from_name("pixel-token"), modal.Secret.from_name("ollama-api-key")],
     volumes={DATA_DIR: memory_volume},
 )
