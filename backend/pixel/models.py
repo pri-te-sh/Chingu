@@ -39,7 +39,8 @@ pixels = sa.Table("pixels", metadata,
     sa.Column("pairing_code", sa.Text), sa.Column("token_hash", sa.Text),
     sa.Column("capabilities", JSONB, nullable=False, server_default="{}"),
     sa.Column("fw_version", sa.Text), sa.Column("fw_channel", sa.Text, server_default="stable"), sa.Column("reset_reason", sa.Text),
-    _ts("created_at"), sa.Column("last_seen_at", sa.DateTime(timezone=True)), sa.Column("paired_at", sa.DateTime(timezone=True)))
+    _ts("created_at"), sa.Column("last_seen_at", sa.DateTime(timezone=True)), sa.Column("paired_at", sa.DateTime(timezone=True)),
+    sa.Column("archived", sa.Boolean, nullable=False, server_default=sa.false()))
 
 personas = sa.Table("personas", metadata,
     sa.Column("pixel_id", sa.BigInteger, sa.ForeignKey("pixels.id", ondelete="CASCADE"), primary_key=True),

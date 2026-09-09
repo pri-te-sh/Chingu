@@ -72,6 +72,7 @@ async def get_or_create_pixel(device_id: str, device_type: str = "lite", househo
     now = dt.datetime.now(dt.timezone.utc)
     if p:
         vals = {"last_seen_at": now}
+        if p.get("archived"): vals.update(archived=False, household_id=None, pairing_code=new_pairing_code())
         if capabilities: vals["capabilities"] = capabilities
         if device_type and device_type != p["device_type"]: vals["device_type"] = device_type
         if not p.get("pairing_code"): vals["pairing_code"] = new_pairing_code()
@@ -107,14 +108,21 @@ async def unpair(pid: int):
     await execute(sa.update(m.pixels).where(m.pixels.c.id == pid).values(household_id=None, token_hash=None, paired_at=None, pairing_code=new_pairing_code()))
 
 
+async def archive_pixel(pid: int):
+    """'Remove' in the portal: unpair and hide, but keep the conversation history (turns stay attached)."""
+    await execute(sa.update(m.pixels).where(m.pixels.c.id == pid).values(archived=True, token_hash=None, pairing_code=None, paired_at=None))
+
+
 async def delete_pixel(pid: int): await execute(sa.delete(m.pixels).where(m.pixels.c.id == pid))
 
 
 def token_valid(p: dict, token: str | None) -> bool:
     return bool(token) and bool(p.get("token_hash")) and hash_token(token) == p["token_hash"]
 
-async def pixels_in_household(hid: int) -> list[dict]:
-    return await fetch_all(sa.select(m.pixels).where(m.pixels.c.household_id == hid).order_by(m.pixels.c.id))
+async def pixels_in_household(hid: int, include_archived=False) -> list[dict]:
+    q = sa.select(m.pixels).where(m.pixels.c.household_id == hid)
+    if not include_archived: q = q.where(m.pixels.c.archived == sa.false())
+    return await fetch_all(q.order_by(m.pixels.c.id))
 
 async def update_pixel(pid: int, **fields):
     await execute(sa.update(m.pixels).where(m.pixels.c.id == pid).values(**fields))

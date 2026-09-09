@@ -653,7 +653,8 @@ async def api_pixel_delete(request: Request, pid: int):
     p = await repo.pixel(pid)
     if not p or p["household_id"] != h["id"]: raise HTTPException(404)
     await bus.inbox_push(p["device_id"], {"type": "unpaired"})
-    await repo.delete_pixel(pid)
+    await repo.archive_pixel(pid)                      # history is kept; the device shows a pairing code again
+    await repo.device_event(pid, "removed")
     return {"ok": True}
 
 
