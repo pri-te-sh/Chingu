@@ -1,0 +1,18 @@
+# secrets - never commit
+include/secrets.h
+*.env
+
+# build / tool output
+.pio/
+.venv/
+backend/.venv/
+__pycache__/
+*.pyc
+
+# large downloads (re-fetched on first run) and personal conversation history
+backend/models/
+backend/data/
+docs/vendor/pack/
+docs/vendor/*.zip
+
+.DS_Store
