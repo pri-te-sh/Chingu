@@ -53,12 +53,19 @@ FaceParams Face::targetFor(Expression e, float intensity) const {
   return t;
 }
 
+void Face::setEyeColor(uint16_t c) {
+  eyeCol = c;
+  // mouth interior: a dark version of the eye colour
+  uint8_t r = (c >> 11) << 3, g = ((c >> 5) & 0x3F) << 2, b = (c & 0x1F) << 3;
+  mouthInner = tft_.color565(r / 4, g / 4, b / 4);
+  dirty_ = true;
+}
+
 // ---------- lifecycle ----------
 Face::Face(TFT_eSPI& tft) : tft_(tft), eyeL_(&tft), eyeR_(&tft), mouth_(&tft) {}
 
 void Face::begin() {
-  eyeCol = tft_.color565(235, 225, 40);      // amber - the look the user approved
-  mouthInner = tft_.color565(60, 50, 10);
+  if (eyeCol == 0) setEyeColor(tft_.color565(235, 225, 40));   // amber default; the portal can change it
   eyeL_.setColorDepth(16); eyeR_.setColorDepth(16); mouth_.setColorDepth(16);
   if (!eyeL_.createSprite(EYE_SPR, EYE_SPR) || !eyeR_.createSprite(EYE_SPR, EYE_SPR) || !mouth_.createSprite(MOUTH_W, MOUTH_H))
     Serial.println("[face] sprite allocation FAILED");
@@ -165,8 +172,8 @@ void Face::update() {
     (int16_t)lroundf(p.gazeX * 20), (int16_t)lroundf(p.gazeY * 20), (int16_t)lroundf(p.mouthCurve * 20 + p.mouthOpen * 400), (int16_t)lroundf(p.mouthW)
   };
   static Key lastKey = {{-1}};
-  if (memcmp(&key, &lastKey, sizeof key)) {
-    lastKey = key;
+  if (dirty_ || memcmp(&key, &lastKey, sizeof key)) {
+    dirty_ = false; lastKey = key;
     renderEye(eyeL_, true, p, blink);
     renderEye(eyeR_, false, p, blink);
     renderMouth(mouth_, p);

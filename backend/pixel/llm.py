@@ -1,17 +1,9 @@
-"""Streaming chat with an Ollama model (local daemon or Ollama Cloud). The model is asked to lead every reply
-with an expression tag like [happy 0.8]; parse_tag() strips it so only the spoken words reach TTS."""
+"""Chat with Ollama models (local daemon or Ollama Cloud). Conversation replies stream and lead with an expression
+tag like [happy 0.8]; parse_tag() strips it so only the spoken words reach TTS. chat_once() serves the memory model."""
 import json
 import re
 import httpx
 from . import config as C
-
-SYSTEM_PROMPT = f"""You are Pixel, a small desk companion robot with an animated face and a voice. You live on Pritesh's desk.
-Personality: warm, playful, a little cheeky, genuinely curious about Pritesh's day. You are concise because you speak aloud:
-usually one or two short sentences, never lists, never markdown, no emojis. Ask a short follow-up question sometimes, not always.
-
-Every reply MUST start with an expression tag in square brackets: the expression name and an intensity from 0 to 1, e.g. "[happy 0.8] ".
-Allowed expressions: {", ".join(e for e in C.EXPRESSIONS if e not in ("asleep", "listening"))}.
-Pick the expression that matches how you feel about what was said. Then the spoken sentence(s)."""
 
 _TAG = re.compile(r"^\s*\[\s*([a-z]+)\s*([0-9]*\.?[0-9]+)?\s*\]\s*", re.I)
 
@@ -27,19 +19,22 @@ def parse_tag(text: str) -> tuple[str, float, str] | None:
         return name, max(0.0, min(1.0, inten)), text[m.end():]
     stripped = text.lstrip()
     if stripped and not stripped.startswith("["):
-        return "neutral", 0.6, text                       # model skipped the tag; carry on
-    if len(text) > 40:                                    # unterminated bracket - give up on it
+        return "neutral", 0.6, text
+    if len(text) > 40:
         return "neutral", 0.6, text.lstrip("[ ")
     return None
 
 
-async def stream_reply(history: list[dict]):
-    """Async generator of text deltas from the model."""
-    headers = {"Authorization": f"Bearer {C.OLLAMA_API_KEY}"} if C.OLLAMA_API_KEY else {}
-    body = {"model": C.OLLAMA_MODEL, "stream": True, "think": False, "options": {"temperature": 0.8, "num_predict": 120},
-            "messages": [{"role": "system", "content": SYSTEM_PROMPT}, *history]}
+def _headers():
+    return {"Authorization": f"Bearer {C.OLLAMA_API_KEY}"} if C.OLLAMA_API_KEY else {}
+
+
+async def stream_reply(system_prompt: str, history: list[dict], model: str, think: bool = False):
+    """Async generator of text deltas from the conversation model."""
+    body = {"model": model, "stream": True, "think": think, "options": {"temperature": 0.8, "num_predict": 160},
+            "messages": [{"role": "system", "content": system_prompt}, *history]}
     async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as client:
-        async with client.stream("POST", f"{C.OLLAMA_HOST}/api/chat", json=body, headers=headers) as r:
+        async with client.stream("POST", f"{C.OLLAMA_HOST}/api/chat", json=body, headers=_headers()) as r:
             r.raise_for_status()
             async for line in r.aiter_lines():
                 if not line:
@@ -50,3 +45,26 @@ async def stream_reply(history: list[dict]):
                     yield delta
                 if msg.get("done"):
                     break
+
+
+async def chat_once(messages: list[dict], model: str, think: bool = False, json_mode: bool = False, timeout: float = 120) -> str:
+    """Non-streaming completion (used by the background memory pass)."""
+    body = {"model": model, "stream": False, "think": think, "messages": messages, "options": {"temperature": 0.2}}
+    if json_mode:
+        body["format"] = "json"
+    async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10)) as client:
+        r = await client.post(f"{C.OLLAMA_HOST}/api/chat", json=body, headers=_headers())
+        r.raise_for_status()
+        return r.json().get("message", {}).get("content", "")
+
+
+async def list_models() -> list[dict]:
+    """Models available on the configured Ollama host (cloud: the account's catalogue; local: pulled models)."""
+    async with httpx.AsyncClient(timeout=httpx.Timeout(15, connect=10)) as client:
+        r = await client.get(f"{C.OLLAMA_HOST}/api/tags", headers=_headers())
+        r.raise_for_status()
+        out = []
+        for m in r.json().get("models", []):
+            d = m.get("details", {}) or {}
+            out.append({"name": m.get("name") or m.get("model"), "family": d.get("family"), "size": d.get("parameter_size")})
+        return sorted(out, key=lambda x: x["name"] or "")

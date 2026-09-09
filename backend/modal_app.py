@@ -24,6 +24,7 @@ image = (
     .env({"PIXEL_MODELS_DIR": MODELS_DIR, "PIXEL_DATA_DIR": DATA_DIR,
           "OLLAMA_HOST": "https://ollama.com", "OLLAMA_MODEL": "gemma4:cloud"})
     .add_local_python_source("pixel", copy=True)
+    .add_local_dir("pixel/portal", remote_path="/root/pixel/portal", copy=True)
     .run_function(_bake_models)
 )
 
@@ -42,5 +43,7 @@ memory_volume = modal.Volume.from_name("pixel-memory", create_if_missing=True)
 @modal.concurrent(max_inputs=4)
 @modal.asgi_app()
 def web():
+    from pixel import store
     from pixel.server import app as fastapi_app
+    store.set_commit(memory_volume.commit)      # persist JSON writes across container restarts
     return fastapi_app

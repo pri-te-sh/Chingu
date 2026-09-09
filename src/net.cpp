@@ -1,6 +1,7 @@
 #include "net.h"
 #include "board.h"
 #include "log.h"
+#include "prefs.h"
 
 #if __has_include("secrets.h")
 #include "secrets.h"
@@ -20,6 +21,7 @@ const Turn& lastTurn() { return turn_; }
 #if NET_ENABLED
 static WebSocketsClient ws;
 static Face* face_ = nullptr;
+static TFT_eSPI* tft_ = nullptr;
 static bool ready_ = false;
 static uint32_t pingSent_ = 0, pongRtt_ = 0;
 
@@ -44,6 +46,13 @@ static void onEvent(WStype_t type, uint8_t* payload, size_t len) {
       if (deserializeJson(d, payload, len)) break;
       const char* t = d["type"] | "";
       if (!strcmp(t, "ready")) { ready_ = true; dbg::log("[net] brain ready"); }
+      else if (!strcmp(t, "config")) {
+        strlcpy(prefs::name, d["name"] | prefs::name, sizeof prefs::name);
+        prefs::setFromHex(d["eye_color"] | "");
+        prefs::autoSleepS = d["auto_sleep_s"] | prefs::autoSleepS;
+        prefs::save(); prefs::apply(*face_, *tft_);
+        dbg::log("[net] config: %s eyes #%06X sleep %us", prefs::name, prefs::eyeRGB, prefs::autoSleepS);
+      }
       else if (!strcmp(t, "pong")) { pongRtt_ = millis() - pingSent_; pingSent_ = 0; if (dbg::verbose) dbg::log("[net] pong %ums", pongRtt_); }
       else if (!strcmp(t, "expression")) {
         Expression e;
@@ -87,8 +96,8 @@ static void onEvent(WStype_t type, uint8_t* payload, size_t len) {
   }
 }
 
-void begin(Face& face) {
-  face_ = &face;
+void begin(Face& face, TFT_eSPI& tft) {
+  face_ = &face; tft_ = &tft;
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);         // lower latency at the cost of some power; revisit on battery
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -141,7 +150,7 @@ bool sendPing() {
 uint32_t pongRtt() { return pongRtt_; }
 
 #else   // ---- no secrets.h: networking compiled out ----
-void begin(Face&) { dbg::log("[net] include/secrets.h missing - networking disabled"); }
+void begin(Face&, TFT_eSPI&) { dbg::log("[net] include/secrets.h missing - networking disabled"); }
 void loop() {}
 bool wifiUp() { return false; }
 bool connected() { return false; }

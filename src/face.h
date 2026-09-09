@@ -43,6 +43,7 @@ public:
   void wake();
   bool asleep() const { return current_ == EXPR_ASLEEP; }
   void setAutoSleep(uint32_t ms) { autoSleepMs_ = ms; }
+  void setEyeColor(uint16_t c565);
   bool hitEye(int16_t sx, int16_t sy) const;
   uint32_t takeMaxFrameUs() { uint32_t v = maxFrameUs_; maxFrameUs_ = 0; return v; }
 
@@ -67,4 +68,5 @@ private:
   float autoGazeX_ = 0, autoGazeY_ = 0, gx_ = 0, gy_ = 0, breath_ = 0;
   bool zsDirty_ = false;
   uint32_t maxFrameUs_ = 0;
+  bool dirty_ = true;
 };

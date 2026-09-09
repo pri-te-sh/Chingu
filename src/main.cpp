@@ -9,12 +9,13 @@
 #include "net.h"
 #include "log.h"
 #include "debug_ui.h"
+#include "prefs.h"
 
 TFT_eSPI tft;
 Face face(tft);
 DebugUI debugUi(tft);
 
-static void toggleDebug() { if (debugUi.active()) { debugUi.exit(); face.begin(); } else debugUi.enter(); }
+static void toggleDebug() { if (debugUi.active()) { debugUi.exit(); face.begin(); prefs::apply(face, tft); } else debugUi.enter(); }
 
 static void setLed(bool r, bool g, bool b) {
   digitalWrite(PIN_LED_R, r ? LOW : HIGH);
@@ -76,8 +77,10 @@ void setup() {
   uint16_t calData[5] = { 366, 3573, 257, 3590, 3 };   // vendor calibration for rotation 1
   tft.setTouch(calData);
 
+  prefs::load();
   face.begin();
-  net::begin(face);
+  prefs::apply(face, tft);
+  net::begin(face, tft);
   Serial.printf("[pixel] free heap after sprites: %u bytes\n", ESP.getFreeHeap());
 }
 

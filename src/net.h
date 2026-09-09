@@ -2,6 +2,7 @@
 #pragma once
 #include <Arduino.h>
 #include "face.h"
+#include <TFT_eSPI.h>
 
 namespace net {
 // Timeline of the most recent conversational turn (ms since sendText / end of utterance).
@@ -16,7 +17,7 @@ struct Turn {
   bool active = false, done = false;
 };
 
-void begin(Face& face);
+void begin(Face& face, TFT_eSPI& tft);
 void loop();
 bool wifiUp();
 bool connected();                       // WebSocket session up (brain said "ready")

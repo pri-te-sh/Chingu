@@ -2,6 +2,7 @@
 #include "board.h"
 #include "log.h"
 #include "net.h"
+#include "prefs.h"
 #include <WiFi.h>
 #include <HTTPClient.h>
 
@@ -158,7 +159,7 @@ void DebugUI::show(Screen s) {
   screen_ = s;
   tft_.fillScreen(BG);
   switch (s) {
-    case MENU:     header("Pixel", false); drawMenu(); break;
+    case MENU:     header(prefs::name, false); drawMenu(); break;
     case NETWORK:  header("Network", true); drawNetwork(); break;
     case INTERNET: header("Internet test", true); inet_ = {}; drawInternet(); break;
     case PIPELINE: header("Pipeline test", true); drawPipeline(); break;
