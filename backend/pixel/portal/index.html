@@ -1,111 +1,176 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Pixel</title>
+<title>PIXEL</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0b0d12;--surf:#141824;--card:#1c2236;--edge:#2c344f;--amber:#ffc400;--cyan:#00cdff;--green:#46dc82;--red:#ff5a5a;--txt:#eceef5;--muted:#8a94a8}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.45 -apple-system,Inter,Segoe UI,Roboto,sans-serif}
-a{color:var(--cyan)}button{font:inherit}
-header{display:flex;align-items:center;gap:18px;padding:14px 22px;border-bottom:1px solid var(--edge);background:linear-gradient(#1a2030,#121620);position:sticky;top:0;z-index:2}
-header h1{font-size:20px;margin:0;display:flex;align-items:center;gap:10px}header h1 svg{width:34px;height:26px}
-nav{display:flex;gap:4px;flex-wrap:wrap}nav button{background:none;border:0;color:var(--muted);padding:8px 12px;border-radius:999px;cursor:pointer}
-nav button.on{background:var(--card);color:var(--txt)}#chips{margin-left:auto;display:flex;gap:10px;align-items:center;color:var(--muted);font-size:13px}
-.dot{width:10px;height:10px;border-radius:50%;background:var(--red);display:inline-block}.dot.on{background:var(--green)}
-main{max-width:1080px;margin:0 auto;padding:22px}section{display:none}section.on{display:block}
-.grid{display:grid;gap:14px}.g3{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
-.card{background:var(--card);border:1px solid var(--edge);border-radius:14px;padding:16px}.card h3{margin:0 0 10px;font-size:13px;color:var(--muted);font-weight:600;letter-spacing:.04em;text-transform:uppercase}
-.big{font-size:30px;font-weight:600}.muted{color:var(--muted)}.amber{color:var(--amber)}.cyan{color:var(--cyan)}.green{color:var(--green)}.red{color:var(--red)}
-.pill{display:inline-block;padding:2px 10px;border-radius:999px;background:var(--surf);border:1px solid var(--edge);font-size:12px;color:var(--muted)}
-.btn{background:var(--amber);color:#141414;border:0;border-radius:999px;padding:8px 16px;font-weight:600;cursor:pointer}.btn.ghost{background:var(--surf);color:var(--txt);border:1px solid var(--edge)}.btn.danger{background:var(--red);color:#fff}.btn.sm{padding:4px 10px;font-size:12px}
-input,textarea,select{width:100%;background:var(--surf);color:var(--txt);border:1px solid var(--edge);border-radius:10px;padding:9px 11px;font:inherit}textarea{min-height:110px;resize:vertical}
-label{display:block;font-size:12px;color:var(--muted);margin:12px 0 5px}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:8px 6px;border-bottom:1px solid var(--edge);vertical-align:top}th{color:var(--muted);font-size:12px;font-weight:600}
-.turn{padding:12px 0;border-bottom:1px solid var(--edge)}.turn .u{color:var(--muted)}.turn .a{margin-top:4px}.turn .meta{font-size:12px;color:var(--muted);margin-top:4px;display:flex;gap:12px;flex-wrap:wrap}
-.fact{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--edge)}.fact .t{flex:1}.fact input{padding:6px 9px}
-.type{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--edge);color:var(--muted);white-space:nowrap}.type.preference{color:var(--cyan)}.type.project{color:var(--amber)}
-.spark{display:flex;align-items:flex-end;gap:3px;height:70px}.spark div{flex:1;background:var(--green);border-radius:3px 3px 0 0;min-height:2px}
-.chat{height:360px;overflow:auto;background:var(--surf);border-radius:12px;padding:12px;border:1px solid var(--edge)}.msg{margin:6px 0;max-width:80%;padding:8px 12px;border-radius:14px;background:var(--card)}.msg.me{margin-left:auto;background:#2a2f45}
-.face{width:220px;height:150px;background:#000;border-radius:14px;display:block;margin:0 auto}
-#login{max-width:380px;margin:80px auto}.range{display:flex;align-items:center;gap:10px}.range input{width:auto;flex:1}
-.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--card);border:1px solid var(--edge);padding:10px 16px;border-radius:999px;opacity:0;transition:.3s}.toast.on{opacity:1}
+:root{--bg:#0a0c14;--bg2:#10131f;--card:#161a2b;--edge:#2b3350;--hi:#3d4870;--amber:#ffc400;--cyan:#2fd3ff;--green:#55e07a;--red:#ff5c6c;--mag:#ff6ad5;--txt:#e9ecf7;--muted:#8791ad;--ink:#0a0c14}
+*{box-sizing:border-box}html{background:var(--bg)}
+body{margin:0;color:var(--txt);font:22px/1.25 "VT323",monospace;background:var(--bg) radial-gradient(circle at 50% -20%,#1a2040 0,transparent 60%);image-rendering:pixelated}
+body::after{content:"";position:fixed;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(0,0,0,.18) 0 2px,transparent 2px 4px);z-index:9}
+.p8{font-family:"Press Start 2P",monospace;font-size:11px;line-height:1.8;letter-spacing:.02em}
+h1,h2,h3{font-family:"Press Start 2P",monospace;font-weight:normal;margin:0}
+h3{font-size:10px;color:var(--amber);letter-spacing:.06em;margin-bottom:10px}
+canvas{image-rendering:pixelated}
+/* pixel-cornered boxes */
+.px{position:relative;background:var(--card);border:4px solid var(--edge);box-shadow:4px 4px 0 #000}
+.px::before,.px::after{content:"";position:absolute;width:4px;height:4px;background:var(--bg)}
+.px::before{top:-4px;left:-4px;box-shadow:calc(100% + 4px) 0 0 var(--bg)}.px::after{bottom:-4px;left:-4px;box-shadow:calc(100% + 4px) 0 0 var(--bg)}
+.px.inset{box-shadow:none;border-color:var(--edge);background:var(--bg2)}
+header{display:flex;align-items:center;gap:22px;padding:14px 26px;border-bottom:4px solid var(--edge);background:var(--bg2);position:sticky;top:0;z-index:5}
+header h1{font-size:16px;color:var(--amber);display:flex;align-items:center;gap:14px;text-shadow:3px 3px 0 #000}
+nav{display:flex;gap:6px;flex-wrap:wrap}nav button{font-family:"Press Start 2P";font-size:10px;background:none;border:3px solid transparent;color:var(--muted);padding:9px 12px;cursor:pointer}
+nav button:hover{color:var(--txt)}nav button.on{color:var(--ink);background:var(--amber);border-color:var(--amber);box-shadow:3px 3px 0 #000}
+#chips{margin-left:auto;display:flex;gap:16px;align-items:center;font-size:20px;color:var(--muted)}
+.led{width:12px;height:12px;background:var(--red);display:inline-block;box-shadow:0 0 8px var(--red);margin-right:6px;vertical-align:-1px}.led.on{background:var(--green);box-shadow:0 0 10px var(--green);animation:blink 2s steps(1) infinite}
+@keyframes blink{50%{opacity:.55}}
+main{max-width:1120px;margin:0 auto;padding:26px 22px 60px}section{display:none}section.on{display:block;animation:in .18s steps(4)}@keyframes in{from{opacity:0;transform:translateY(6px)}}
+.grid{display:grid;gap:22px}.g3{grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}.g2{grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}.g21{grid-template-columns:2fr 1fr}@media(max-width:800px){.g21{grid-template-columns:1fr}}
+.card{padding:18px}.big{font-family:"Press Start 2P";font-size:22px;line-height:1.3;text-shadow:3px 3px 0 #000}.muted{color:var(--muted)}.amber{color:var(--amber)}.cyan{color:var(--cyan)}.green{color:var(--green)}.red{color:var(--red)}.mag{color:var(--mag)}
+.tag{display:inline-block;font-family:"Press Start 2P";font-size:8px;padding:5px 7px;border:2px solid var(--edge);color:var(--muted);vertical-align:middle;letter-spacing:.05em}
+.tag.preference{color:var(--cyan);border-color:var(--cyan)}.tag.project{color:var(--amber);border-color:var(--amber)}.tag.fact{color:var(--green);border-color:var(--green)}.tag.expr{color:var(--mag);border-color:var(--mag)}
+.btn{font-family:"Press Start 2P";font-size:10px;background:var(--amber);color:var(--ink);border:0;padding:12px 16px;cursor:pointer;box-shadow:4px 4px 0 #000;position:relative;top:0;left:0}
+.btn:active{top:3px;left:3px;box-shadow:1px 1px 0 #000}.btn.ghost{background:var(--edge);color:var(--txt)}.btn.cyan{background:var(--cyan)}.btn.danger{background:var(--red);color:#fff}.btn.sm{font-size:8px;padding:8px 10px;box-shadow:3px 3px 0 #000}
+.btn[disabled]{opacity:.5;cursor:default}
+input,textarea,select{width:100%;background:var(--bg2);color:var(--txt);border:3px solid var(--edge);padding:8px 10px;font:22px "VT323",monospace;outline:none}
+input:focus,textarea:focus,select:focus{border-color:var(--amber)}textarea{min-height:120px;resize:vertical}select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--amber) 50%),linear-gradient(135deg,var(--amber) 50%,transparent 50%);background-position:calc(100% - 18px) 55%,calc(100% - 12px) 55%;background-size:6px 6px;background-repeat:no-repeat}
+label{display:block;font-family:"Press Start 2P";font-size:8px;color:var(--muted);margin:14px 0 6px;letter-spacing:.06em}.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+input[type=range]{-webkit-appearance:none;height:12px;background:repeating-linear-gradient(90deg,var(--edge) 0 8px,var(--bg2) 8px 12px);border:3px solid var(--edge);padding:0}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:22px;background:var(--amber);border:3px solid #000;cursor:pointer}
+input[type=checkbox]{width:18px;height:18px;appearance:none;border:3px solid var(--edge);background:var(--bg2);vertical-align:-3px;margin-right:8px;cursor:pointer}input[type=checkbox]:checked{background:var(--green);box-shadow:inset 0 0 0 3px var(--bg2)}
+.bar{display:flex;gap:2px;height:14px}.bar i{flex:1;background:var(--edge)}.bar i.f{background:var(--green)}.bar i.a{background:var(--amber)}.bar i.c{background:var(--cyan)}
+.spark{display:flex;align-items:flex-end;gap:4px;height:90px;padding-top:6px}.spark div{width:12px;display:flex;flex-direction:column-reverse;gap:0}.spark div i{display:block;width:100%}
+.hud{display:grid;grid-template-columns:auto 1fr;gap:22px;align-items:center}.hud .face{width:176px;height:120px;background:#000;border:4px solid var(--edge);box-shadow:4px 4px 0 #000}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.stat .v{font-family:"Press Start 2P";font-size:18px;text-shadow:3px 3px 0 #000}.stat .k{font-family:"Press Start 2P";font-size:8px;color:var(--muted);margin-top:8px;letter-spacing:.05em}
+.chat{height:340px;overflow:auto;padding:12px;background:var(--bg2);border:3px solid var(--edge)}.msg{margin:8px 0;max-width:78%;padding:8px 12px;border:3px solid var(--edge);background:var(--card);position:relative}.msg.me{margin-left:auto;border-color:var(--hi)}
+.msg.pix{border-color:var(--amber)}.msg .m{font-size:17px;color:var(--muted);margin-top:4px}
+.turn{padding:12px 0;border-bottom:3px dashed var(--edge)}.turn .u{color:var(--muted)}.turn .a{margin-top:4px}.turn .meta{font-size:18px;color:var(--muted);margin-top:5px;display:flex;gap:14px;flex-wrap:wrap}.turn .meta a{color:var(--red);text-decoration:none}
+.days{display:flex;flex-direction:column;gap:6px}.days button{text-align:left;font:22px "VT323";background:var(--bg2);border:3px solid var(--edge);color:var(--txt);padding:6px 10px;cursor:pointer;display:flex;justify-content:space-between}.days button.on{border-color:var(--amber);color:var(--amber)}
+.fact{display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;align-items:center;padding:8px 0;border-bottom:3px dashed var(--edge)}.fact input{padding:5px 9px}.fact small{display:block;font-size:16px;color:var(--muted)}
+.empty{padding:26px;text-align:center;color:var(--muted)}.empty canvas{display:block;margin:0 auto 10px}
+.term{font:20px "VT323";background:#05070d;border:3px solid var(--edge);padding:12px;max-height:420px;overflow:auto;color:#b6ffcc;white-space:pre-wrap}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--card);border:4px solid var(--amber);padding:12px 18px;box-shadow:4px 4px 0 #000;opacity:0;transition:.15s;z-index:20;font-family:"Press Start 2P";font-size:10px}.toast.on{opacity:1}
+.dirty{display:none;color:var(--amber)}.dirty.on{display:inline}
+#login{max-width:420px;margin:90px auto}.sw{width:30px;height:30px;border:3px solid #000;box-shadow:3px 3px 0 #000;cursor:pointer}
+.kbd{font-size:17px;color:var(--muted)}
 </style></head><body>
-<header><h1><svg viewBox="0 0 68 40"><rect x="6" y="6" width="18" height="22" rx="6" fill="var(--amber)"/><rect x="44" y="6" width="18" height="22" rx="6" fill="var(--amber)"/><path d="M26 32q8 6 16 0" stroke="var(--amber)" stroke-width="3" fill="none" stroke-linecap="round"/></svg><span id="title">Pixel</span></h1>
-<nav id="nav"></nav><div id="chips"><span id="devchip"><span class="dot"></span> no device</span><span id="modelchip"></span></div></header>
+<header><h1><canvas id="logo" width="22" height="15" style="width:66px;height:45px"></canvas><span id="title">PIXEL</span></h1>
+<nav id="nav"></nav><div id="chips"><span id="devchip"><i class="led"></i>NO DEVICE</span><span id="modelchip" class="cyan"></span></div></header>
 <main>
-<div id="login" class="card" style="display:none"><h3>Portal token</h3><p class="muted">The PIXEL_TOKEN from your Modal secret.</p><input id="tok" type="password" placeholder="token"><div style="margin-top:12px"><button class="btn" onclick="saveTok()">Enter</button></div></div>
+<div id="login" class="px card" style="display:none"><h3>ACCESS TOKEN</h3><p class="muted" style="margin:0 0 10px">PIXEL_TOKEN from your Modal secret (same as BACKEND_TOKEN on the device).</p><input id="tok" type="password" placeholder="••••••••" onkeydown="if(event.key==='Enter')saveTok()"><div style="margin-top:16px"><button class="btn" onclick="saveTok()">ENTER</button></div></div>
 
-<section id="dashboard"><div class="grid g3">
-<div class="card"><h3>Device</h3><div id="d-dev" class="big">-</div><div id="d-dev2" class="muted"></div></div>
-<div class="card"><h3>Conversations</h3><div class="big" id="d-turns">-</div><div class="muted">today · <span id="d-total"></span> total</div></div>
-<div class="card"><h3>Memory</h3><div class="big" id="d-facts">-</div><div class="muted"><span id="d-fu"></span> open follow-ups</div></div>
-<div class="card"><h3>Brain uptime</h3><div class="big" id="d-up">-</div><div class="muted" id="d-models"></div></div></div>
-<div class="grid g2" style="margin-top:14px">
-<div class="card"><h3>Latency per turn (ms) — face / voice / done</h3><div class="spark" id="spark"></div><div class="row muted" style="margin-top:8px;font-size:12px"><span class="amber">■ face</span><span class="cyan">■ first voice</span><span class="green">■ done</span><span id="lat-avg" style="margin-left:auto"></span></div></div>
-<div class="card"><h3>Today so far (Pixel's own summary)</h3><div id="d-summary" class="muted">nothing yet</div></div></div>
-<div class="card" style="margin-top:14px"><h3>Talk to Pixel (text, no audio)</h3><div class="chat" id="chat"></div><div class="row" style="margin-top:10px"><input id="chat-in" placeholder="Say something…" onkeydown="if(event.key==='Enter')sendChat()"><button class="btn" onclick="sendChat()">Send</button><button class="btn ghost" onclick="sayDevice()" title="Speak it through the connected device">To device</button></div></div>
+<!-- DASHBOARD -->
+<section id="dashboard">
+<div class="px card hud"><canvas class="face" id="hero" width="44" height="30"></canvas>
+ <div><div class="row"><span class="big" id="h-name">PIXEL</span><span class="big" id="h-state" style="font-size:12px"></span></div>
+  <div class="muted" id="h-sub" style="margin:6px 0 16px">waiting for the device…</div>
+  <div class="stats"><div class="stat"><div class="v amber" id="d-turns">-</div><div class="k">TURNS TODAY</div></div><div class="stat"><div class="v green" id="d-facts">-</div><div class="k">FACTS KNOWN</div></div><div class="stat"><div class="v cyan" id="d-fu">-</div><div class="k">FOLLOW-UPS</div></div><div class="stat"><div class="v" id="d-up">-</div><div class="k">BRAIN UPTIME</div></div></div></div></div>
+<div class="grid g21" style="margin-top:22px">
+ <div class="px card"><h3>RESPONSE TIME · LAST 30 TURNS</h3><div class="spark" id="spark"></div><div class="row" style="margin-top:10px;font-size:18px"><span class="amber">■ face</span><span class="cyan">■ voice starts</span><span class="green">■ done</span><span class="muted" id="lat-avg" style="margin-left:auto"></span></div></div>
+ <div class="px card"><h3>TODAY, IN PIXEL'S WORDS</h3><div id="d-summary" class="muted">nothing yet</div><div class="kbd" style="margin-top:14px" id="d-models"></div></div></div>
+<div class="px card" style="margin-top:22px"><h3>TALK TO PIXEL</h3><div class="chat" id="chat"><div class="empty muted">Type below. "SEND" answers here in text; "TO DEVICE" makes the real Pixel react and speak.</div></div>
+ <div class="row" style="margin-top:12px"><input id="chat-in" placeholder="say something…" onkeydown="if(event.key==='Enter')sendChat()"><button class="btn" onclick="sendChat()">SEND</button><button class="btn cyan" id="todev" onclick="sayDevice()">TO DEVICE</button></div></div>
 </section>
 
-<section id="conversations"><div class="card"><div class="row"><h3 style="margin:0">Conversation log</h3><input id="day" type="date" style="width:auto;margin-left:auto"><button class="btn ghost sm" onclick="loadTurns()">Load</button><button class="btn ghost sm" onclick="document.getElementById('day').value='';loadTurns()">All recent</button></div><div id="turns"></div></div></section>
+<!-- LOG -->
+<section id="log"><div class="grid" style="grid-template-columns:200px 1fr"><div><div class="px card"><h3>DAYS</h3><div class="days" id="days"></div></div></div>
+<div class="px card"><div class="row"><h3 id="log-title" style="margin:0">CONVERSATION LOG</h3><input id="q" placeholder="filter…" style="width:220px;margin-left:auto" oninput="renderTurns()"></div><div id="turns"></div></div></div></section>
 
-<section id="memory"><div class="grid g2">
-<div class="card"><div class="row"><h3 style="margin:0">Long-term facts</h3><span class="muted" style="margin-left:auto;font-size:12px">pinned facts never expire; others fade after 90 days unconfirmed</span></div>
-<div class="row" style="margin:10px 0"><input id="fact-new" placeholder="Add a fact Pixel should know…" onkeydown="if(event.key==='Enter')addFact()"><select id="fact-type" style="width:auto"><option>fact</option><option>preference</option><option>project</option></select><button class="btn sm" onclick="addFact()">Add</button></div>
-<div id="facts"></div><div class="row" style="margin-top:14px"><button class="btn ghost sm" onclick="extractNow()">Run memory pass now</button><button class="btn danger sm" onclick="forgetAll()">Forget everything</button></div></div>
-<div><div class="card"><h3>Follow-ups Pixel wants to ask about</h3><div id="fus" class="muted">none</div></div>
-<div class="card" style="margin-top:14px"><h3>Daily summaries</h3><div id="sums" class="muted">none</div></div>
-<div class="card" style="margin-top:14px"><h3>What Pixel is told right now</h3><button class="btn ghost sm" onclick="showPrompt()">Show system prompt</button><pre id="prompt" class="muted" style="white-space:pre-wrap;font-size:12px;display:none"></pre></div></div></div></section>
+<!-- MEMORY -->
+<section id="memory"><div class="grid g21">
+ <div class="px card"><div class="row"><h3 style="margin:0">WHAT PIXEL KNOWS</h3><input id="fq" placeholder="search…" style="width:200px;margin-left:auto" oninput="renderFacts()"></div>
+  <div class="row" style="margin:12px 0 4px"><input id="fact-new" placeholder="teach Pixel something…" onkeydown="if(event.key==='Enter')addFact()"><select id="fact-type" style="width:150px"><option>fact</option><option>preference</option><option>project</option></select><button class="btn sm" onclick="addFact()">TEACH</button></div>
+  <div class="kbd" style="margin-bottom:6px">📌 pinned facts never fade · others fade after 90 days unless re-confirmed in conversation</div>
+  <div id="facts"></div>
+  <div class="row" style="margin-top:16px"><button class="btn ghost sm" onclick="extractNow()">RUN MEMORY PASS</button><button class="btn danger sm" onclick="forgetAll()">FORGET EVERYTHING</button></div></div>
+ <div class="grid" style="gap:22px;align-content:start"><div class="px card"><h3>WANTS TO ASK ABOUT</h3><div id="fus" class="muted">nothing pending</div></div>
+  <div class="px card"><h3>DAILY SUMMARIES</h3><div id="sums" class="muted">none yet</div></div>
+  <div class="px card"><h3>SYSTEM PROMPT</h3><div class="kbd" style="margin-bottom:8px">exactly what Pixel is told before every reply</div><button class="btn ghost sm" onclick="showPrompt()">REVEAL</button><pre id="prompt" class="term" style="display:none;margin-top:10px"></pre></div></div></div></section>
 
-<section id="personality"><div class="grid g2"><div class="card"><h3>Identity</h3><label>Name</label><input id="c-name"><label>Owner's name</label><input id="c-owner"><label>Personality</label><textarea id="c-persona"></textarea>
-<label>Cheeky ↔ gentle</label><div class="range"><span class="muted">gentle</span><input type="range" min="0" max="1" step="0.05" id="c-cheeky"><span class="muted">cheeky</span></div>
-<label>Terse ↔ chatty</label><div class="range"><span class="muted">terse</span><input type="range" min="0" max="1" step="0.05" id="c-chatty"><span class="muted">chatty</span></div>
-<label>Timezone</label><input id="c-tz"><div style="margin-top:14px"><button class="btn" onclick="saveConfig()">Save</button></div></div>
-<div class="card"><h3>Models (Ollama Cloud)</h3><p class="muted" style="margin-top:0">Conversation runs the fast model with thinking off. The memory pass runs in the background, so it can use a bigger, slower model.</p>
-<label>Conversation model</label><select id="c-chat"></select><div class="row" style="margin-top:6px"><label style="margin:0"><input type="checkbox" id="c-chat-think" style="width:auto"> allow thinking (adds seconds of latency)</label></div>
-<label>Memory model</label><select id="c-mem"></select><div class="row" style="margin-top:6px"><label style="margin:0"><input type="checkbox" id="c-mem-think" style="width:auto"> allow thinking</label></div>
-<div class="row" style="margin-top:10px"><label style="margin:0"><input type="checkbox" id="c-mem-on" style="width:auto"> memory extraction enabled</label></div>
-<label>History turns in context</label><input id="c-hist" type="number" min="0" max="40" style="width:120px"><div id="models-err" class="red"></div><div style="margin-top:14px"><button class="btn" onclick="saveConfig()">Save</button></div></div></div></section>
+<!-- BRAIN -->
+<section id="brain"><div class="grid g2">
+ <div class="px card"><h3>IDENTITY</h3><label>NAME</label><input id="c-name" data-c><label>OWNER</label><input id="c-owner" data-c><label>PERSONALITY</label><textarea id="c-persona" data-c></textarea>
+  <label>GENTLE ◄──► CHEEKY</label><input type="range" min="0" max="1" step="0.05" id="c-cheeky" data-c><label>TERSE ◄──► CHATTY</label><input type="range" min="0" max="1" step="0.05" id="c-chatty" data-c>
+  <label>TIMEZONE</label><input id="c-tz" data-c><label>TURNS OF HISTORY IN CONTEXT</label><input id="c-hist" type="number" min="0" max="40" style="width:120px" data-c></div>
+ <div class="grid" style="gap:22px;align-content:start"><div class="px card"><h3>MODELS · OLLAMA CLOUD</h3><div class="kbd">Conversation must be fast: thinking off. The memory pass runs in the background and can afford a big, slow model.</div>
+  <label>CONVERSATION</label><select id="c-chat" data-c></select><div class="row" style="margin-top:8px"><label style="margin:0;font-size:8px"><input type="checkbox" id="c-chat-think" data-c>ALLOW THINKING (+ seconds)</label></div>
+  <label>MEMORY / SUBCONSCIOUS</label><select id="c-mem" data-c></select><div class="row" style="margin-top:8px"><label style="margin:0;font-size:8px"><input type="checkbox" id="c-mem-think" data-c>ALLOW THINKING</label></div>
+  <div class="row" style="margin-top:12px"><label style="margin:0;font-size:8px"><input type="checkbox" id="c-mem-on" data-c>MEMORY EXTRACTION ENABLED</label></div><div id="models-err" class="red"></div></div>
+  <div class="px card"><h3>PROMPT PREVIEW</h3><pre id="prompt2" class="term" style="max-height:260px">…</pre></div></div></div>
+<div class="row" style="margin-top:22px"><button class="btn" onclick="saveConfig()">SAVE &amp; PUSH</button><span class="dirty p8" id="dirty1">● UNSAVED CHANGES</span></div></section>
 
-<section id="appearance"><div class="grid g2"><div class="card"><h3>Eye colour</h3><canvas class="face" id="facecv" width="220" height="150"></canvas><div class="row" style="margin-top:12px;justify-content:center"><input type="color" id="c-eye" style="width:60px;height:38px;padding:2px" oninput="drawFace()"><span id="c-eye-hex" class="muted"></span><button class="btn" onclick="saveConfig()">Apply to device</button></div>
-<div class="row" style="margin-top:10px;justify-content:center" id="swatches"></div></div>
-<div class="card"><h3>Device</h3><label>Fall asleep after (seconds of no interaction)</label><input id="c-sleep" type="number" min="10" max="3600" style="width:140px"><div style="margin-top:14px"><button class="btn" onclick="saveConfig()">Save</button></div><p class="muted" style="margin-top:18px">Changes are pushed to the device live over its WebSocket and stored on the device so they survive reboots.</p></div></div></section>
+<!-- DEVICE -->
+<section id="device"><div class="grid g2">
+ <div class="px card"><h3>EYES</h3><canvas class="face" id="facecv" width="44" height="30" style="width:352px;height:240px;display:block;margin:0 auto"></canvas>
+  <div class="row" style="margin-top:16px;justify-content:center" id="swatches"></div>
+  <div class="row" style="margin-top:14px;justify-content:center"><input type="color" id="c-eye" data-c style="width:60px;height:40px;padding:2px" oninput="drawFace(faceCv)"><span id="c-eye-hex" class="muted"></span></div></div>
+ <div class="grid" style="gap:22px;align-content:start"><div class="px card"><h3>BEHAVIOUR</h3><label>FALL ASLEEP AFTER (SECONDS IDLE)</label><input id="c-sleep" type="number" min="10" max="3600" style="width:140px" data-c>
+  <div class="kbd" style="margin-top:14px">Saved settings are pushed live over the device's WebSocket and stored in its flash, so they survive reboots and offline starts.</div></div>
+  <div class="px card"><h3>DEVICE</h3><div id="dev-info" class="muted">not connected</div><div class="row" style="margin-top:12px"><input id="dev-say" placeholder="make Pixel say / react to…" onkeydown="if(event.key==='Enter')sayDevice2()"><button class="btn cyan sm" onclick="sayDevice2()">SEND</button></div></div></div></div>
+<div class="row" style="margin-top:22px"><button class="btn" onclick="saveConfig()">SAVE &amp; PUSH</button><span class="dirty p8" id="dirty2">● UNSAVED CHANGES</span></div></section>
 </main><div class="toast" id="toast"></div>
 <script>
-const $=s=>document.querySelector(s);let TOK=localStorage.getItem('pixel_token')||'';let CFG={};
-const pages=['dashboard','conversations','memory','personality','appearance'];
-$('#nav').innerHTML=pages.map(p=>`<button data-p="${p}" onclick="go('${p}')">${p[0].toUpperCase()+p.slice(1)}</button>`).join('');
-function go(p){pages.forEach(x=>{$('#'+x).classList.toggle('on',x===p);document.querySelector(`[data-p=${x}]`).classList.toggle('on',x===p)});location.hash=p;({dashboard:loadStatus,conversations:loadTurns,memory:loadMemory,personality:loadConfig,appearance:loadConfig})[p]()}
-async function api(path,opt={}){const r=await fetch('/api'+path,{...opt,headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOK,...(opt.headers||{})}});if(r.status===401){$('#login').style.display='block';throw new Error('auth')}if(!r.ok)throw new Error(await r.text());return r.json()}
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];let TOK=localStorage.getItem('pixel_token')||'';let CFG={},TURNS=[],FACTS=[],DAY=null;
+const pages={dashboard:'DASHBOARD',log:'LOG',memory:'MEMORY',brain:'BRAIN',device:'DEVICE'};
+$('#nav').innerHTML=Object.entries(pages).map(([p,l])=>`<button data-p="${p}" onclick="go('${p}')">${l}</button>`).join('');
+function go(p){Object.keys(pages).forEach(x=>{$('#'+x).classList.toggle('on',x===p);document.querySelector(`[data-p=${x}]`).classList.toggle('on',x===p)});history.replaceState(null,'','#'+p);({dashboard:loadStatus,log:loadTurns,memory:loadMemory,brain:loadConfig,device:loadConfig})[p]().catch(()=>{})}
+async function api(path,opt={}){const r=await fetch('/api'+path,{...opt,headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOK}});if(r.status===401){$('#login').style.display='block';throw new Error('auth')}if(!r.ok)throw new Error(await r.text());return r.json()}
 function saveTok(){TOK=$('#tok').value.trim();localStorage.setItem('pixel_token',TOK);$('#login').style.display='none';start()}
-function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),1800)}
-const fmt=s=>s>=3600?Math.floor(s/3600)+'h '+Math.floor(s%3600/60)+'m':s>=60?Math.floor(s/60)+'m '+s%60+'s':s+'s';
-async function loadStatus(){const s=await api('/status');$('#title').textContent=s.name;document.title=s.name;const d=s.devices[0];
-$('#devchip').innerHTML=`<span class="dot ${d?'on':''}"></span> ${d?d.id+' online':'no device'}`;$('#modelchip').textContent=s.chat_model;
-$('#d-dev').textContent=d?d.id:'offline';$('#d-dev2').textContent=d?`connected ${fmt(d.connected_s)}${d.last_turn_s!=null?' · last turn '+fmt(d.last_turn_s)+' ago':''}`:'waiting for the device to connect';
-$('#d-turns').textContent=s.turns_today;$('#d-total').textContent=s.turns_total;$('#d-facts').textContent=s.facts;$('#d-fu').textContent=s.followups;$('#d-up').textContent=fmt(s.uptime_s);$('#d-models').textContent=`${s.chat_model} · memory ${s.memory_model}`;$('#d-summary').textContent=s.summary_today||'nothing yet';
-const L=s.latency;const mx=Math.max(1500,...L.map(x=>x.t_done));$('#spark').innerHTML=L.map(x=>`<div title="face ${x.t_expr} · voice ${x.t_audio} · done ${x.t_done}" style="height:${x.t_done/mx*100}%;background:linear-gradient(to top,var(--amber) 0 ${x.t_expr/x.t_done*100}%,var(--cyan) ${x.t_expr/x.t_done*100}% ${x.t_audio/x.t_done*100}%,var(--green) ${x.t_audio/x.t_done*100}%)"></div>`).join('')||'<span class="muted">no turns yet</span>';
-if(L.length){const avg=k=>Math.round(L.reduce((a,x)=>a+x[k],0)/L.length);$('#lat-avg').textContent=`avg face ${avg('t_expr')} · voice ${avg('t_audio')} · done ${avg('t_done')} ms`}}
-async function sendChat(){const t=$('#chat-in').value.trim();if(!t)return;$('#chat-in').value='';const c=$('#chat');c.insertAdjacentHTML('beforeend',`<div class="msg me">${esc(t)}</div>`);c.scrollTop=1e9;const r=await api('/chat',{method:'POST',body:JSON.stringify({text:t})});c.insertAdjacentHTML('beforeend',`<div class="msg"><span class="pill">${r.expr} ${r.intensity}</span> ${esc(r.reply)}<div class="muted" style="font-size:11px;margin-top:4px">face ${r.t_expr} ms · done ${r.t_done} ms</div></div>`);c.scrollTop=1e9}
-async function sayDevice(){const t=$('#chat-in').value.trim();if(!t)return toast('type something first');try{await api('/device/say',{method:'POST',body:JSON.stringify({text:t})});toast('sent to device');$('#chat-in').value=''}catch(e){toast('no device connected')}}
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),1600)}
 const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-async function loadTurns(){const day=$('#day').value;const T=await api('/turns?limit=150'+(day?'&day='+day:''));$('#turns').innerHTML=T.slice().reverse().map(t=>`<div class="turn"><div class="u">${esc(t.ts).replace('T',' ')} · <b>${esc(t.device)}</b> — ${esc(t.user)}</div><div class="a"><span class="pill">${esc(t.expr)} ${t.intensity}</span> ${esc(t.reply)}</div><div class="meta"><span>face ${t.t_expr} ms</span><span>voice ${t.t_audio} ms</span><span>done ${t.t_done} ms</span><span>${t.audio_s}s speech</span><span>${esc(t.model||'')}</span><a href="#" onclick="delTurn(${t.id});return false" class="red">delete</a></div></div>`).join('')||'<p class="muted">no conversations yet</p>'}
+const fmt=s=>s>=3600?Math.floor(s/3600)+'h '+Math.floor(s%3600/60)+'m':s>=60?Math.floor(s/60)+'m '+s%60+'s':s+'s';
+
+/* ---------- pixel face (44x30 grid) ---------- */
+const faces={};function pixFace(cv,col,blink,gaze){const x=cv.getContext('2d'),W=cv.width,H=cv.height,k=W/44;x.fillStyle='#000';x.fillRect(0,0,W,H);x.fillStyle=col;const ew=Math.max(3,Math.round(8*k)),EH=Math.max(3,Math.round(9*k));const eh=Math.max(1,Math.round(EH*blink)),ey=Math.round(H*0.42-eh/2)+Math.round((gaze?.y||0)*k);const eye=(cx)=>{const x0=Math.round(cx-ew/2)+Math.round((gaze?.x||0)*k);for(let r=0;r<eh;r++){const t=(r===0||r===eh-1)&&eh>2;x.fillRect(x0+(t?1:0),ey+r,ew-(t?2:0),1)}};eye(W*0.32);eye(W*0.68);const mw=Math.max(3,Math.round(8*k)),my=Math.round(H*0.78);x.fillRect(Math.round(W/2-mw/2),my,mw,1);if(k>=1){x.fillRect(Math.round(W/2-mw/2)-1,my-1,1,1);x.fillRect(Math.round(W/2+mw/2),my-1,1,1)}}
+function animate(cv,getCol){let t=0,nb=60+Math.random()*120,gz={x:0,y:0};setInterval(()=>{t++;if(t>nb){t=0;nb=60+Math.random()*120}if(t%90===0)gz={x:[-2,0,2][Math.floor(Math.random()*3)],y:[-1,0,1][Math.floor(Math.random()*3)]};const b=t<4?Math.abs(2-t)/2:1;pixFace(cv,getCol(),b,gz)},60)}
+const faceCv=$('#facecv');const eye=()=>{const v=$('#c-eye').value;return (!v||v==='#000000')?(CFG.eye_color||'#EBE128'):v};
+animate($('#logo'),()=>'#ffc400');animate($('#hero'),eye);animate(faceCv,eye);
+function drawFace(cv){$('#c-eye-hex').textContent=eye().toUpperCase();markDirty()}
+
+/* ---------- dashboard ---------- */
+function blocks(frac,cls,n=20){frac=Math.max(0,Math.min(1,frac));return Array.from({length:n},(_,i)=>`<i class="${i<Math.round(frac*n)?cls:''}"></i>`).join('')}
+async function loadStatus(){const s=await api('/status');const nm=s.name.toUpperCase();$('#title').textContent=nm;$('#h-name').textContent=nm;document.title=nm;const d=s.devices[0];
+$('#devchip').innerHTML=`<i class="led ${d?'on':''}"></i>${d?d.id.toUpperCase()+' ONLINE':'NO DEVICE'}`;$('#modelchip').textContent=s.chat_model;$('#todev').disabled=!d;
+$('#h-state').innerHTML=d?'<span class="green">● ONLINE</span>':'<span class="red">● OFFLINE</span>';$('#h-sub').textContent=d?`connected ${fmt(d.connected_s)}${d.last_turn_s!=null?' · last spoke '+fmt(d.last_turn_s)+' ago':' · no turns yet this session'}`:'the device is not connected to the brain right now';
+$('#d-turns').textContent=s.turns_today;$('#d-facts').textContent=s.facts;$('#d-fu').textContent=s.followups;$('#d-up').textContent=fmt(s.uptime_s);$('#d-models').textContent=`talk: ${s.chat_model} · memory: ${s.memory_model} · ${s.turns_total} turns ever`;$('#d-summary').textContent=s.summary_today||'nothing yet — have a conversation';
+const L=s.latency.filter(x=>x.t_done);const mx=Math.max(1600,...L.map(x=>x.t_done));$('#spark').innerHTML=L.map(x=>{const h=v=>Math.round(v/mx*84);const a=h(x.t_expr),c=h(Math.max(x.t_audio,x.t_expr))-a,g=h(x.t_done)-a-c;return `<div title="face ${x.t_expr} · voice ${x.t_audio} · done ${x.t_done} ms"><i style="height:${a}px;background:var(--amber)"></i><i style="height:${c}px;background:var(--cyan)"></i><i style="height:${g}px;background:var(--green)"></i></div>`}).join('')||'<span class="muted">no turns yet</span>';
+if(L.length){const avg=k=>Math.round(L.reduce((a,x)=>a+x[k],0)/L.length);$('#lat-avg').textContent=`avg face ${avg('t_expr')} · voice ${avg('t_audio')} · done ${avg('t_done')} ms`}
+$('#dev-info').innerHTML=d?`<span class="green">${d.id}</span> connected ${fmt(d.connected_s)}${d.busy?' · <span class="amber">speaking</span>':''}`:'not connected'}
+async function sendChat(){const t=$('#chat-in').value.trim();if(!t)return;$('#chat-in').value='';const c=$('#chat');if(c.querySelector('.empty'))c.innerHTML='';c.insertAdjacentHTML('beforeend',`<div class="msg me">${esc(t)}</div>`);c.scrollTop=1e9;const id='w'+Date.now();c.insertAdjacentHTML('beforeend',`<div class="msg pix" id="${id}"><span class="muted">▮▮▮ thinking</span></div>`);c.scrollTop=1e9;try{const r=await api('/chat',{method:'POST',body:JSON.stringify({text:t})});document.getElementById(id).innerHTML=`<span class="tag expr">${r.expr} ${r.intensity}</span> ${esc(r.reply)}<div class="m">face ${r.t_expr} ms · done ${r.t_done} ms</div>`}catch(e){document.getElementById(id).innerHTML=`<span class="red">error: ${esc(e.message)}</span>`}c.scrollTop=1e9}
+async function sayDevice(){const t=$('#chat-in').value.trim();if(!t)return toast('TYPE SOMETHING FIRST');try{await api('/device/say',{method:'POST',body:JSON.stringify({text:t})});toast('SENT TO DEVICE');$('#chat-in').value=''}catch(e){toast('NO DEVICE CONNECTED')}}
+async function sayDevice2(){const t=$('#dev-say').value.trim();if(!t)return;try{await api('/device/say',{method:'POST',body:JSON.stringify({text:t})});toast('SENT TO DEVICE');$('#dev-say').value=''}catch(e){toast('NO DEVICE CONNECTED')}}
+
+/* ---------- log ---------- */
+async function loadTurns(){TURNS=await api('/turns?limit=500');const days={};TURNS.forEach(t=>{const d=t.ts.slice(0,10);days[d]=(days[d]||0)+1});const keys=Object.keys(days).sort().reverse();if(!DAY||!days[DAY])DAY=keys[0]||null;
+$('#days').innerHTML=`<button class="${DAY===null?'on':''}" onclick="DAY=null;loadTurns()"><span>all</span><span class="muted">${TURNS.length}</span></button>`+keys.map(d=>`<button class="${DAY===d?'on':''}" onclick="DAY='${d}';loadTurns()"><span>${d.slice(5)}</span><span class="muted">${days[d]}</span></button>`).join('');renderTurns()}
+function renderTurns(){const q=$('#q').value.toLowerCase();let T=TURNS.filter(t=>(!DAY||t.ts.startsWith(DAY))&&(!q||(t.user+' '+t.reply).toLowerCase().includes(q)));$('#log-title').textContent=(DAY||'ALL')+' · '+T.length+' TURNS';
+$('#turns').innerHTML=T.slice().reverse().map(t=>`<div class="turn"><div class="u">${esc(t.ts.slice(11,16))} · <span class="cyan">${esc(t.device)}</span> › ${esc(t.user)}</div><div class="a"><span class="tag expr">${esc(t.expr)} ${t.intensity}</span> ${esc(t.reply)}</div><div class="meta"><span>face ${t.t_expr}ms</span><span>voice ${t.t_audio}ms</span><span>done ${t.t_done}ms</span><span>${t.audio_s}s speech</span><span>${esc(t.model||'')}</span><a href="#" onclick="delTurn(${t.id});return false">delete</a></div></div>`).join('')||emptyBox('no conversations yet')}
+function emptyBox(msg){return `<div class="empty"><canvas width="44" height="30" style="width:132px;height:90px" data-empty></canvas>${msg}</div>`}
 async function delTurn(id){await api('/turns/'+id,{method:'DELETE'});loadTurns()}
-async function loadMemory(){const F=await api('/facts');$('#facts').innerHTML=F.map(f=>`<div class="fact"><span class="type ${f.type}">${f.type}</span><div class="t"><input value="${esc(f.text)}" onchange="editFact(${f.id},this.value)"><div class="muted" style="font-size:11px;margin-top:3px">first ${f.first_seen.slice(0,10)} · confirmed ${f.last_confirmed.slice(0,10)}</div></div><button class="btn ghost sm" title="pin" onclick="pinFact(${f.id},${!f.pinned})">${f.pinned?'📌':'pin'}</button><button class="btn ghost sm red" onclick="delFact(${f.id})">✕</button></div>`).join('')||'<p class="muted">Pixel has not learned anything yet. Have a few conversations, or add a fact above.</p>';
-const U=await api('/followups');$('#fus').innerHTML=U.filter(f=>!f.done).map(f=>`<div class="row" style="padding:6px 0"><span style="flex:1">${esc(f.text)}${f.due?` <span class="pill">${f.due}</span>`:''}</span><button class="btn ghost sm" onclick="doneFu(${f.id})">done</button><button class="btn ghost sm red" onclick="delFu(${f.id})">✕</button></div>`).join('')||'none';
-const S=await api('/summaries');$('#sums').innerHTML=Object.entries(S).sort().reverse().map(([d,s])=>`<div style="padding:6px 0"><b>${d}</b><div>${esc(s)}</div></div>`).join('')||'none'}
-async function addFact(){const t=$('#fact-new').value.trim();if(!t)return;await api('/facts',{method:'POST',body:JSON.stringify({text:t,type:$('#fact-type').value,pinned:true})});$('#fact-new').value='';loadMemory()}
-async function editFact(id,text){await api('/facts/'+id,{method:'PUT',body:JSON.stringify({text})});toast('saved')}
+
+/* ---------- memory ---------- */
+async function loadMemory(){FACTS=await api('/facts');renderFacts();const U=await api('/followups');$('#fus').innerHTML=U.filter(f=>!f.done).map(f=>`<div class="row" style="padding:6px 0;border-bottom:3px dashed var(--edge)"><span style="flex:1">${esc(f.text)}${f.due?` <span class="tag">${f.due}</span>`:''}</span><button class="btn ghost sm" onclick="doneFu(${f.id})">DONE</button><button class="btn danger sm" onclick="delFu(${f.id})">✕</button></div>`).join('')||'nothing pending';
+const S=await api('/summaries');$('#sums').innerHTML=Object.entries(S).sort().reverse().map(([d,s])=>`<div style="padding:6px 0"><span class="amber">${d}</span><div>${esc(s)}</div></div>`).join('')||'none yet'}
+function renderFacts(){const q=$('#fq').value.toLowerCase();const F=FACTS.filter(f=>!q||f.text.toLowerCase().includes(q));const order={project:0,preference:1,fact:2};F.sort((a,b)=>(b.pinned-a.pinned)||(order[a.type]-order[b.type]));
+$('#facts').innerHTML=F.map(f=>`<div class="fact"><span class="tag ${f.type}">${f.type}</span><div><input value="${esc(f.text)}" onchange="editFact(${f.id},this.value)"><small>learned ${f.first_seen.slice(0,10)} · confirmed ${f.last_confirmed.slice(0,10)}</small></div><button class="btn ghost sm" title="${f.pinned?'unpin':'pin'}" onclick="pinFact(${f.id},${!f.pinned})">${f.pinned?'📌':'PIN'}</button><button class="btn danger sm" onclick="delFact(${f.id})">✕</button></div>`).join('')||emptyBox("Pixel hasn't learned anything yet. Have a few conversations, or teach it above.");drawEmpties()}
+function drawEmpties(){$$('[data-empty]').forEach(c=>pixFace(c,'#3d4870',1,{x:0,y:1}))}
+async function addFact(){const t=$('#fact-new').value.trim();if(!t)return;await api('/facts',{method:'POST',body:JSON.stringify({text:t,type:$('#fact-type').value,pinned:true})});$('#fact-new').value='';toast('LEARNED');loadMemory()}
+async function editFact(id,text){await api('/facts/'+id,{method:'PUT',body:JSON.stringify({text})});toast('SAVED')}
 async function pinFact(id,p){await api('/facts/'+id,{method:'PUT',body:JSON.stringify({pinned:p})});loadMemory()}
 async function delFact(id){await api('/facts/'+id,{method:'DELETE'});loadMemory()}
 async function doneFu(id){await api('/followups/'+id,{method:'PUT',body:JSON.stringify({done:true})});loadMemory()}
 async function delFu(id){await api('/followups/'+id,{method:'DELETE'});loadMemory()}
-async function extractNow(){toast('running memory pass…');await api('/memory/extract',{method:'POST'});loadMemory();toast('done')}
-async function forgetAll(){if(!confirm('Erase all facts, follow-ups and summaries? Conversation log is kept.'))return;await api('/facts/forget_all',{method:'POST'});loadMemory()}
+async function extractNow(){toast('THINKING…');await api('/memory/extract',{method:'POST'});loadMemory();toast('MEMORY UPDATED')}
+async function forgetAll(){if(!confirm('Erase all facts, follow-ups and summaries? The conversation log is kept.'))return;await api('/facts/forget_all',{method:'POST'});loadMemory()}
 async function showPrompt(){const p=await api('/prompt');const el=$('#prompt');el.style.display='block';el.textContent=p.system_prompt}
-async function loadConfig(){CFG=await api('/config');$('#c-name').value=CFG.name;$('#c-owner').value=CFG.owner;$('#c-persona').value=CFG.persona;$('#c-cheeky').value=CFG.tone.cheeky;$('#c-chatty').value=CFG.tone.chatty;$('#c-tz').value=CFG.timezone;$('#c-hist').value=CFG.history_turns;$('#c-sleep').value=CFG.auto_sleep_s;$('#c-eye').value=CFG.eye_color;$('#c-eye-hex').textContent=CFG.eye_color;$('#c-chat-think').checked=CFG.chat_think;$('#c-mem-think').checked=CFG.memory_think;$('#c-mem-on').checked=CFG.memory_enabled;drawFace();
-const M=await api('/models');$('#models-err').textContent=M.error?'Could not list models from '+M.host+': '+M.error:'';const names=new Set(M.models.map(m=>m.name));names.add(CFG.chat_model);names.add(CFG.memory_model);const opts=[...names].sort().map(n=>`<option>${n}</option>`).join('');$('#c-chat').innerHTML=opts;$('#c-mem').innerHTML=opts;$('#c-chat').value=CFG.chat_model;$('#c-mem').value=CFG.memory_model;
-$('#swatches').innerHTML=['#EBE128','#FFC400','#28E1EB','#46DC82','#FF7A59','#C77DFF','#FFFFFF','#FF5A5A'].map(c=>`<span onclick="$('#c-eye').value='${c}';drawFace()" style="width:26px;height:26px;border-radius:50%;background:${c};cursor:pointer;border:2px solid var(--edge)"></span>`).join('')}
-async function saveConfig(){const patch={name:$('#c-name').value,owner:$('#c-owner').value,persona:$('#c-persona').value,tone:{cheeky:+$('#c-cheeky').value,chatty:+$('#c-chatty').value},timezone:$('#c-tz').value,history_turns:+$('#c-hist').value,auto_sleep_s:+$('#c-sleep').value,eye_color:$('#c-eye').value.toUpperCase(),chat_model:$('#c-chat').value,memory_model:$('#c-mem').value,chat_think:$('#c-chat-think').checked,memory_think:$('#c-mem-think').checked,memory_enabled:$('#c-mem-on').checked};CFG=await api('/config',{method:'PUT',body:JSON.stringify(patch)});$('#title').textContent=CFG.name;toast('saved & pushed to device')}
-function drawFace(){const c=$('#facecv'),x=c.getContext('2d'),col=$('#c-eye').value;$('#c-eye-hex').textContent=col.toUpperCase();x.fillStyle='#000';x.fillRect(0,0,220,150);x.fillStyle=col;rr(x,52,40,46,50,17);rr(x,122,40,46,50,17);x.strokeStyle=col;x.lineWidth=4;x.lineCap='round';x.beginPath();x.moveTo(90,118);x.quadraticCurveTo(110,128,130,118);x.stroke()}
-function rr(x,X,Y,W,H,R){x.beginPath();x.roundRect(X,Y,W,H,R);x.fill()}
-function start(){go(location.hash.slice(1)||'dashboard');setInterval(()=>{if($('#dashboard').classList.contains('on'))loadStatus().catch(()=>{})},5000)}
+
+/* ---------- config ---------- */
+let dirty=false;function markDirty(){dirty=true;$$('.dirty').forEach(e=>e.classList.add('on'))}$$('[data-c]').forEach(e=>e.addEventListener('input',markDirty));
+async function loadConfig(){CFG=await api('/config');$('#c-name').value=CFG.name;$('#c-owner').value=CFG.owner;$('#c-persona').value=CFG.persona;$('#c-cheeky').value=CFG.tone.cheeky;$('#c-chatty').value=CFG.tone.chatty;$('#c-tz').value=CFG.timezone;$('#c-hist').value=CFG.history_turns;$('#c-sleep').value=CFG.auto_sleep_s;$('#c-eye').value=CFG.eye_color;$('#c-eye-hex').textContent=CFG.eye_color;$('#c-chat-think').checked=CFG.chat_think;$('#c-mem-think').checked=CFG.memory_think;$('#c-mem-on').checked=CFG.memory_enabled;dirty=false;$$('.dirty').forEach(e=>e.classList.remove('on'));
+$('#swatches').innerHTML=['#EBE128','#FFC400','#2FD3FF','#55E07A','#FF7A59','#FF6AD5','#FFFFFF','#FF5C6C'].map(c=>`<span class="sw" onclick="$('#c-eye').value='${c}';drawFace()" style="background:${c}"></span>`).join('');
+api('/prompt').then(p=>$('#prompt2').textContent=p.system_prompt).catch(()=>{});
+const M=await api('/models');$('#models-err').textContent=M.error?'could not list models from '+M.host+': '+M.error:'';const names=new Set(M.models.map(m=>m.name));names.add(CFG.chat_model);names.add(CFG.memory_model);const opts=[...names].sort().map(n=>`<option>${n}</option>`).join('');$('#c-chat').innerHTML=opts;$('#c-mem').innerHTML=opts;$('#c-chat').value=CFG.chat_model;$('#c-mem').value=CFG.memory_model}
+async function saveConfig(){const patch={name:$('#c-name').value,owner:$('#c-owner').value,persona:$('#c-persona').value,tone:{cheeky:+$('#c-cheeky').value,chatty:+$('#c-chatty').value},timezone:$('#c-tz').value,history_turns:+$('#c-hist').value,auto_sleep_s:+$('#c-sleep').value,eye_color:$('#c-eye').value.toUpperCase(),chat_model:$('#c-chat').value,memory_model:$('#c-mem').value,chat_think:$('#c-chat-think').checked,memory_think:$('#c-mem-think').checked,memory_enabled:$('#c-mem-on').checked};CFG=await api('/config',{method:'PUT',body:JSON.stringify(patch)});$('#title').textContent=CFG.name.toUpperCase();dirty=false;$$('.dirty').forEach(e=>e.classList.remove('on'));toast('SAVED · PUSHED TO DEVICE');api('/prompt').then(p=>$('#prompt2').textContent=p.system_prompt)}
+window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue=''}});
+function start(){api('/config').then(c=>{CFG=c;$('#c-eye').value=c.eye_color}).catch(()=>{});window.scrollTo(0,0);go(location.hash.slice(1)||'dashboard');setInterval(()=>{if($('#dashboard').classList.contains('on'))loadStatus().catch(()=>{})},5000)}
 start();
 </script></body></html>

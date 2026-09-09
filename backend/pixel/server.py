@@ -234,7 +234,7 @@ async def root():
 
 @app.get("/portal", response_class=HTMLResponse)
 async def portal():
-    return FileResponse(PORTAL_DIR / "index.html")
+    return FileResponse(PORTAL_DIR / "index.html", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/status", dependencies=[Depends(auth)])
@@ -245,7 +245,8 @@ async def api_status():
             "devices": [{"id": d, "connected_s": int(time.time() - s.connected_at), "busy": s.busy,
                          "last_turn_s": int(time.time() - s.last_turn) if s.last_turn else None} for d, s in sessions.items()],
             "turns_today": len(memory.turns(limit=1000, day=today)), "turns_total": len(memory.turns(limit=100000)),
-            "facts": len(memory.facts()), "followups": len(memory.followups()), "latency": latency_log[-30:],
+            "facts": len(memory.facts()), "followups": len(memory.followups()),
+            "latency": [{k: t.get(k) for k in ("ts", "t_expr", "t_audio", "t_done")} for t in memory.turns(limit=30)],
             "summary_today": memory.summaries().get(today), "chat_model": cfg["chat_model"], "memory_model": cfg["memory_model"]}
 
 
