@@ -25,6 +25,7 @@ static TFT_eSPI* tft_ = nullptr;
 static bool ready_ = false;
 static uint32_t pingSent_ = 0, pongRtt_ = 0;
 
+static void sendStatus();
 static void setLedBlue(bool on) { digitalWrite(PIN_LED_B, on ? LOW : HIGH); }
 static uint32_t since() { return millis() - turn_.t0; }
 
@@ -45,7 +46,7 @@ static void onEvent(WStype_t type, uint8_t* payload, size_t len) {
       JsonDocument d;
       if (deserializeJson(d, payload, len)) break;
       const char* t = d["type"] | "";
-      if (!strcmp(t, "ready")) { ready_ = true; dbg::log("[net] brain ready"); }
+      if (!strcmp(t, "ready")) { ready_ = true; dbg::log("[net] brain ready"); sendStatus(); }
       else if (!strcmp(t, "config")) {
         strlcpy(prefs::name, d["name"] | prefs::name, sizeof prefs::name);
         prefs::setFromHex(d["eye_color"] | "");
@@ -112,8 +113,18 @@ void begin(Face& face, TFT_eSPI& tft) {
 #endif
 }
 
+static void sendStatus() {
+  if (!ready_) return;
+  JsonDocument d;
+  d["type"] = "status"; d["rssi"] = WiFi.RSSI(); d["heap"] = ESP.getFreeHeap(); d["uptime_s"] = millis() / 1000;
+  d["ip"] = WiFi.localIP().toString(); d["fw"] = __DATE__ " " __TIME__; d["expr"] = expressionName(face_->expression());
+  d["name"] = prefs::name;
+  String s; serializeJson(d, s); ws.sendTXT(s);
+  if (dbg::verbose) dbg::log("[net] status rssi %d heap %u", WiFi.RSSI(), ESP.getFreeHeap());
+}
+
 void loop() {
-  static bool wasUp = false; static uint32_t lastBlink = 0;
+  static bool wasUp = false; static uint32_t lastBlink = 0, lastStatus = 0;
   bool up = WiFi.status() == WL_CONNECTED;
   if (up != wasUp) {
     wasUp = up;
@@ -122,6 +133,7 @@ void loop() {
   }
   if (!up && millis() - lastBlink > 400) { lastBlink = millis(); setLedBlue((millis() / 400) & 1); }
   if (up) ws.loop();
+  if (ready_ && millis() - lastStatus > 30000) { lastStatus = millis(); sendStatus(); }
 }
 
 bool wifiUp() { return WiFi.status() == WL_CONNECTED; }

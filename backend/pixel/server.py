@@ -37,6 +37,15 @@ class Session:
         self.last_turn = None
         self.inject: asyncio.Queue = asyncio.Queue()
         self.busy = False
+        self.status: dict = {}          # last heartbeat from the board (rssi, heap, uptime, ip, fw, expr)
+        self.status_at = None
+
+
+def device_event(device: str, event: str, **extra):
+    """Connection history: connected / disconnected / heartbeat summary, kept on the volume."""
+    row = {"ts": memory.now_local().isoformat(timespec="seconds"), "device": device, "event": event, **extra}
+    store.append_jsonl("device_events.jsonl", row)
+    return row
 
 
 @app.get("/health")
@@ -146,6 +155,7 @@ async def ws_endpoint(ws: WebSocket):
     device = re.sub(r"[^a-z0-9_-]", "", (hello.get("device") or "pixel").lower()) or "pixel"
     sess = Session(ws, device)
     sessions[device] = sess
+    device_event(device, "connected", ip=ws.client.host if ws.client else None)
     vad = EnergyVAD()
     loop = asyncio.get_running_loop()
     await send_json(ws, type="ready")
@@ -198,6 +208,12 @@ async def ws_endpoint(ws: WebSocket):
                 t = data.get("type")
                 if t == "ping":
                     await send_json(ws, type="pong", t=time.time())
+                elif t == "status":
+                    sess.status = {k: data.get(k) for k in ("rssi", "heap", "uptime_s", "ip", "fw", "expr", "name")}
+                    sess.status_at = time.time()
+                    if not getattr(sess, "first_status", False):
+                        sess.first_status = True
+                        device_event(device, "status", rssi=data.get("rssi"), ip=data.get("ip"), fw=data.get("fw"))
                 elif t == "end":
                     utt = vad.flush()
                     if utt: await handle_utterance(utt)
@@ -214,6 +230,7 @@ async def ws_endpoint(ws: WebSocket):
         except Exception: pass
     finally:
         inj.cancel()
+        device_event(device, "disconnected", duration_s=int(time.time() - sess.connected_at), rssi=sess.status.get("rssi"))
         if sessions.get(device) is sess:
             del sessions[device]
 
@@ -243,7 +260,8 @@ async def api_status():
     today = memory.today_key()
     return {"name": cfg["name"], "uptime_s": int(time.time() - started_at),
             "devices": [{"id": d, "connected_s": int(time.time() - s.connected_at), "busy": s.busy,
-                         "last_turn_s": int(time.time() - s.last_turn) if s.last_turn else None} for d, s in sessions.items()],
+                         "last_turn_s": int(time.time() - s.last_turn) if s.last_turn else None,
+                         "status": s.status, "status_age_s": int(time.time() - s.status_at) if s.status_at else None} for d, s in sessions.items()],
             "turns_today": len(memory.turns(limit=1000, day=today)), "turns_total": len(memory.turns(limit=100000)),
             "facts": len(memory.facts()), "followups": len(memory.followups()),
             "latency": [{k: t.get(k) for k in ("ts", "t_expr", "t_audio", "t_done")} for t in memory.turns(limit=30)],
@@ -349,6 +367,11 @@ async def api_chat(body: dict):
     """Text-only test conversation from the portal (no device, no audio)."""
     if not body.get("text"): raise HTTPException(400, "text required")
     return await respond(None, "portal", body["text"], want_audio=False)
+
+
+@app.get("/api/device/events", dependencies=[Depends(auth)])
+async def api_device_events(limit: int = 60):
+    return store.read_jsonl("device_events.jsonl")[-limit:]
 
 
 @app.post("/api/device/say", dependencies=[Depends(auth)])
