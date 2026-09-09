@@ -36,7 +36,7 @@ memory_volume = modal.Volume.from_name("pixel-memory", create_if_missing=True)
     cpu=2.0,
     memory=2048,
     scaledown_window=600,                 # stay warm 10 min after the last exchange -> instant follow-ups
-    timeout=300,                          # WS sessions recycled every 5 min (device auto-reconnects): caps how long a stray old container can block a rollover
+    timeout=3600,                         # device WS sessions live up to an hour (board reconnects seamlessly)
     secrets=[modal.Secret.from_name("pixel-token"), modal.Secret.from_name("ollama-api-key")],
     volumes={DATA_DIR: memory_volume},
 )
