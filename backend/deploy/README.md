@@ -1,4 +1,4 @@
-# Pixel brain: production runbook (Hetzner CPX21, Ubuntu 24.04)
+# Pixel brain: production runbook (Hetzner CX23, Ubuntu 26.04, pixel.priteshbhavsar.com)
 
 ## First deploy
 1. Create the server (Ashburn, CPX21, Ubuntu 24.04, your SSH key). Note its IP.
@@ -12,6 +12,12 @@
 4. Open `https://pixel.<yourdomain>/portal`, sign in, PIXELS > FIRMWARE > publish the current build.
 5. Move the board: publish a firmware whose `PIXEL_DEFAULT_BRAIN_HOST`/port/TLS point at the new domain (`platformio.ini`), OTA it from the *old* brain, then Setup > Change Wi-Fi is **not** needed - the device keeps its Wi-Fi and pairing token. It will show a pairing code once because the new database has no pixels: pair it again from the new portal.
 6. Import history: `deploy/restore.sh` with a dump taken from the laptop (`docker compose exec -T postgres pg_dump -U pixel -d pixel -Fc > laptop.dump`, `scp` it over). Do this *before* step 5 so the device's row (device_id `lite-0365e8`) and token carry over, and no re-pairing is needed.
+
+## CI/CD
+`.github/workflows/deploy.yml`: every push to `main` touching `backend/` runs the tests (Postgres + Redis service containers), then SSHes in as
+`pixel` with the `pixel-ci-deploy` key (GitHub secrets `DEPLOY_HOST`, `DEPLOY_SSH_KEY`) and runs `deploy/up.sh`, then smoke-tests `/health` over HTTPS.
+Firmware is *not* built by CI: release it from the laptop with `tools/release.sh <ver> "<notes>"` (targets the local brain) or publish the .bin
+in the portal (PIXELS > FIRMWARE), or on the box: `docker compose exec -T brain python -m pixel.tools_cli.publish_fw --version X --device-type lite < fw.bin`.
 
 ## Day 2
 - Update code: `sudo -u pixel /opt/pixel/backend/deploy/up.sh`
