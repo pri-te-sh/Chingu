@@ -103,6 +103,12 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 - [x] Verification pass 3: live-socket revocation on ownership change (V1), grandfather branch removed (V2) — 28 tests
 - [ ] Still open: browser playback-cancellation test, end-to-end audio timing from last spoken word; household invites so a second Google account can join "Home"
 
+### P3b — Portal UX (audit `docs/audits/2026-09-10-portal-ux-audit.md`)
+- [x] Phase 1 (layout/access): composer under the hero, no equal-height card stretching, content-sized chat; mobile PIXELS shows the selected device first, no horizontal overflow; Add-a-Pixel + Firmware collapsed; Manage menu; no Save on the Device tab; household-timezone dates; distinct no-match empty states; labelled + confirmed deletes
+- [ ] Phase 2 (long lists): session-grouped History with server-side pagination/search and device filter; Memory read mode + Edit drawer + filter chips; collapsed dated summaries; follow-ups grouped Overdue/Today/Upcoming/Done
+- [ ] Phase 3 (clarity): page-local scope/destination instead of the global Pixel selector; Talk diagnostics behind a toggle with plain states; Back-button routing; inline errors with Retry
+- [ ] Phase 4 (polish): body text size/line-height, fewer border layers, softer scanlines behind text; contrast + keyboard pass; physical-phone check
+
 ### P3 — Cutover to a VM (Hetzner CX23 or home box + Cloudflare Tunnel; Oracle dropped)
 - [x] **Hetzner CX23** (Ubuntu 26.04, 2 vCPU/4 GB, 2.29.41.213, SSH key "hetzner") bootstrapped 2026-09-10: docker, ufw 22/80/443, fail2ban, unattended-upgrades, `pixel` user, stack up with prod profile, laptop DB restored (104 turns, 3 pixels), nightly backups cron
 - [x] DNS `pixel.priteshbhavsar.com` → 2.29.41.213 (Netlify), Let's Encrypt cert via Caddy 2026-09-10
