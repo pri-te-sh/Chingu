@@ -26,6 +26,14 @@ in the portal (PIXELS > FIRMWARE), or on the box: `docker compose exec -T brain 
 - Uptime Kuma: `ssh -L 3001:localhost:3001 pixel@<ip>` then http://localhost:3001; add an HTTP monitor for `https://pixel.<yourdomain>/api/health` and a keyword monitor for the portal.
 - Google sign-in: create an OAuth client (web), redirect URI `https://pixel.<yourdomain>/auth/callback`, put ID/secret in `.env`, set `PIXEL_ALLOW_DEV_LOGIN=0`, `up.sh`.
 
+## Device identity & pairing (since firmware 0.4.0)
+- Each board generates a 64-hex **identity key** on first boot (NVS namespace `pixelid`, survives factory reset) and sends it in `hello.device_key`
+  over verified TLS; the brain stores only its hash (`pixels.device_key_hash`). A known device presenting a wrong key is closed (4001).
+- **Pairing token** binds a device to a household. A verified unit that lost its token (factory reset / on-device un-pair) is *released*
+  (household cleared) and shows a code; only unpaired devices are claimable by code. Portal UNPAIR does the same from the owner's side.
+- Legacy row (no key yet): the first keyed connection registers the key. A legacy row with a bad token is refused.
+- Platform admin (`users.is_admin`) is required for firmware publish/delete and drain: `update users set is_admin=true where email='...'`.
+
 ## Security posture
 - Only 22/80/443 open (ufw). Brain, Postgres, Redis and Kuma are bound to localhost/Docker network; Caddy terminates TLS.
 - SSH keys only, fail2ban on sshd, unattended security upgrades.

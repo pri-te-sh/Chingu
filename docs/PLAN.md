@@ -95,6 +95,11 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 - [x] Ported to the brain 2026-09-10: clause chunker (first clause early, ≤160 chars, all boundaries), queued speaker task (TTS overlaps LLM streaming), punctuation pauses (140/320 ms), per-chunk `chunk` events shown inline in the simulator, mid-reply expression tags stripped from speech
 - [x] Parakeet-TDT 0.6B STT in the worker (`PIXEL_STT_ENGINE=parakeet`, whisper auto-fallback, per-request override; simulator has an STT selector and shows engine + ms on each transcript). In-container A/B on synthetic speech: whisper 1.9 s / WER 0.05 vs Parakeet 290 ms / WER 0.03. Enabled in production 2026-09-10; validate with real voice on the simulator
 
+### P3a — Security audit remediation (2026-09-10) → `docs/audits/2026-09-10-pixel-audit.md` + `-response.md`
+- [x] F01–F20 fixed in one release: device identity keys (survive factory reset; hash stored), cookie-authenticated simulators, no pairing-code takeover (only unpaired rows claimable; verified units that lost their token are released), household-scoped record writes, admin-only firmware/drain (`users.is_admin`), validated settings, minimal public `/health`, retention job, pinned-SHA deploys, fuller backups; firmware 0.4.0: verified TLS with Let's Encrypt roots + SNTP, setup-form TLS fix, OTA backoff/stall deadline, no `secrets.h` seeding; secrets backup purged from git history
+- [ ] Owner: rotate the home Wi-Fi password (it was in the purged file); optionally ask GitHub support to gc the old objects
+- [ ] Still open from the audit: OTA failure paths on hardware, browser playback-cancellation test, end-to-end audio timing from last spoken word; household invites so a second Google account can join "Home"
+
 ### P3 — Cutover to a VM (Hetzner CX23 or home box + Cloudflare Tunnel; Oracle dropped)
 - [x] **Hetzner CX23** (Ubuntu 26.04, 2 vCPU/4 GB, 2.29.41.213, SSH key "hetzner") bootstrapped 2026-09-10: docker, ufw 22/80/443, fail2ban, unattended-upgrades, `pixel` user, stack up with prod profile, laptop DB restored (104 turns, 3 pixels), nightly backups cron
 - [x] DNS `pixel.priteshbhavsar.com` → 2.29.41.213 (Netlify), Let's Encrypt cert via Caddy 2026-09-10
