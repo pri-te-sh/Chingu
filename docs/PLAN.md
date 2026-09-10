@@ -102,7 +102,8 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 - [ ] Nightly `pg_dump` → Backblaze B2; weekly restore test; Uptime Kuma alerts
 - [ ] Telemetry: heartbeat v2 (fw, reset reason, min heap, fps, RSSI, reconnects, audio xruns, battery); device log shipping + crash upload; HEALTH portal page (per Pixel + brain latency percentiles); retention jobs
 - [x] Board repointed with `POST /api/pixels/21/brain` (firmware 0.3.2) 2026-09-10 — reconnects once the home router's negative DNS cache (1 h) expires; Modal `pixel-brain` app stopped
-- [ ] Stop the laptop Compose stack once the board is confirmed online on the new brain (portal: https://pixel.priteshbhavsar.com/portal)
+- [x] Board `lite-0365e8` online on the new brain 2026-09-10 23:59 (after the router's negative DNS cache expired); laptop Compose stack stopped (`docker compose up -d` in backend/ brings the dev stack back)
+- [x] Landing page for signed-out visitors (animated face, typewriter, motes, feature tiles; Google-only sign-in, dev login off in prod)
 
 ### P4 — Pixel-3S bring-up (after hardware arrives)
 - [ ] Download Waveshare 3.5B docs/demo pack; verify camera FPC orientation from schematic
