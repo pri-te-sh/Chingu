@@ -172,12 +172,11 @@ details.px>summary{cursor:pointer;list-style:none;font-family:"Press Start 2P";f
  <div><div class="row"><span class="big" id="h-name">PIXEL</span><span class="big" id="h-state" style="font-size:11px"></span></div>
   <div class="muted" id="h-sub" style="margin:6px 0 16px">…</div>
   <div class="stats"><div class="stat"><div class="v amber" id="d-turns">-</div><div class="k">TURNS TODAY</div></div><div class="stat"><div class="v green" id="d-facts">-</div><div class="k">FACTS KNOWN</div></div><div class="stat"><div class="v cyan" id="d-fu">-</div><div class="k">FOLLOW-UPS</div></div><div class="stat"><div class="v" id="d-up">-</div><div class="k">BRAIN UPTIME</div></div></div></div></div>
-<div class="px card" style="margin-top:22px"><h3>TALK TO <span id="chat-name">PIXEL</span></h3><div class="chat" id="chat"><div class="empty muted">Say something. SEND answers here in text; TO PIXEL makes the real Pixel react and speak.</div></div>
+<div class="px card" style="margin-top:22px"><h3>TALK TO <span id="chat-name">PIXEL</span></h3><div class="chat" id="chat"><div class="empty muted">Say something. SEND answers here in text; TO PIXEL makes the real Pixel react and speak.</div></div> <div class="row" style="margin-top:12px"><input id="chat-in" placeholder="say something…" onkeydown="if(event.key==='Enter')sendChat()"><button class="btn" onclick="sendChat()">SEND</button><button class="btn cyan" id="todev" onclick="sayDevice()">TO PIXEL</button></div></div>
 <div class="grid g21" style="margin-top:22px">
  <div class="px card"><h3>RESPONSE TIME · LAST 30 TURNS</h3><div class="spark" id="spark"></div><div class="row" style="margin-top:10px;font-size:18px"><span class="amber">■ face</span><span class="cyan">■ voice starts</span><span class="green">■ done</span><span class="muted" id="lat-avg" style="margin-left:auto"></span></div></div>
  <div class="grid" style="gap:22px;align-content:start"><div class="px card"><h3>TODAY, IN PIXEL'S WORDS</h3><div id="d-summary" class="muted">nothing yet</div><div class="kbd" style="margin-top:14px" id="d-models"></div></div>
  <div class="px card"><div class="row"><h3 style="margin:0">WHAT PIXEL KNOWS ABOUT TODAY</h3><button class="btn ghost sm" style="margin-left:auto" onclick="refreshBrief()">REFRESH</button></div><div id="d-brief" class="muted">no brief yet</div></div></div></div>
- <div class="row" style="margin-top:12px"><input id="chat-in" placeholder="say something…" onkeydown="if(event.key==='Enter')sendChat()"><button class="btn" onclick="sendChat()">SEND</button><button class="btn cyan" id="todev" onclick="sayDevice()">TO PIXEL</button></div></div>
 </section>
 
 <!-- TALK (simulator) -->
