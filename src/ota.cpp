@@ -107,8 +107,9 @@ bool update(const Manifest& m) {
   if (!Update.begin(len)) { http.end(); state_ = "failed"; dbg::log("[ota] not enough space: %s", Update.errorString()); return false; }
   mbedtls_sha256_context sha; mbedtls_sha256_init(&sha); mbedtls_sha256_starts(&sha, 0);
   WiFiClient* stream = http.getStreamPtr();
-  uint8_t buf[2048]; int got = 0; uint32_t lastLog = 0, lastData = millis();
+  uint8_t buf[2048]; int got = 0; uint32_t lastLog = 0, lastData = millis(), t0 = millis();
   while (http.connected() && got < len) {
+    if (millis() - t0 > 600000UL) { dbg::log("[ota] download exceeded 10 minutes"); Update.abort(); http.end(); state_ = "failed"; return false; }
     size_t avail = stream->available();
     if (!avail) {
       if (millis() - lastData > 20000) { dbg::log("[ota] download stalled"); Update.abort(); http.end(); state_ = "failed"; return false; }

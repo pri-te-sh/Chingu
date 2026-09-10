@@ -90,10 +90,10 @@ async def get_or_create_pixel(device_id: str, device_type: str = "lite", househo
 
 async def touch_pixel(pid: int, capabilities: dict | None = None, fw_version: str | None = None):
     """Post-authentication refresh of what the device reports about itself."""
-    vals = {}
+    vals = {"last_seen_at": dt.datetime.now(dt.timezone.utc)}
     if capabilities: vals["capabilities"] = capabilities
     if fw_version: vals["fw_version"] = str(fw_version)[:40]
-    if vals: await execute(sa.update(m.pixels).where(m.pixels.c.id == pid).values(**vals))
+    await execute(sa.update(m.pixels).where(m.pixels.c.id == pid).values(**vals))
 
 
 def key_valid(p: dict, key: str | None) -> bool:
@@ -109,9 +109,13 @@ async def count_pending() -> int:
 
 
 async def expire_pending(days: int = 7) -> int:
-    """Drop never-claimed registrations (and their empty personas) older than `days`."""
+    """Drop registrations that were NEVER claimed (no previous household, no history) and have been silent for `days`.
+    A device that once belonged to a household keeps its row and its turns forever, whatever its pairing state."""
     cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)
-    ids = [r["id"] for r in await fetch_all(sa.select(m.pixels.c.id).where(m.pixels.c.household_id.is_(None), m.pixels.c.paired_at.is_(None), m.pixels.c.last_seen_at < cutoff))]
+    has_turns = sa.exists().where(m.turns.c.pixel_id == m.pixels.c.id)
+    ids = [r["id"] for r in await fetch_all(sa.select(m.pixels.c.id).where(
+        m.pixels.c.household_id.is_(None), m.pixels.c.prev_household_id.is_(None), m.pixels.c.paired_at.is_(None),
+        m.pixels.c.archived == sa.false(), ~has_turns, m.pixels.c.last_seen_at < cutoff))]
     if ids: await execute(sa.delete(m.pixels).where(m.pixels.c.id.in_(ids)))
     return len(ids)
 
@@ -133,18 +137,23 @@ async def pair(pid: int, household_id: int, name: str | None = None) -> str:
     vals = {"household_id": household_id, "paired_at": dt.datetime.now(dt.timezone.utc), "pairing_code": None}
     if name: vals["name"] = name.strip()[:40]
     await execute(sa.update(m.pixels).where(m.pixels.c.id == pid).values(**vals))
-    if prev and prev.get("household_id") not in (None, household_id):      # ownership transfer: persona starts clean
+    last = prev.get("household_id") or prev.get("prev_household_id") if prev else None
+    if last is not None and last != household_id:                            # ownership transfer (incl. unpair -> claim): persona starts clean
         await execute(sa.update(m.personas).where(m.personas.c.pixel_id == pid).values(config={}))
     return await issue_token(pid)
 
 
 async def unpair(pid: int):
-    await execute(sa.update(m.pixels).where(m.pixels.c.id == pid).values(household_id=None, token_hash=None, paired_at=None, pairing_code=new_pairing_code()))
+    """Release from its household; remember where it came from so a later claim by someone else resets the persona."""
+    await execute(sa.update(m.pixels).where(m.pixels.c.id == pid).values(
+        prev_household_id=sa.func.coalesce(m.pixels.c.household_id, m.pixels.c.prev_household_id),
+        household_id=None, token_hash=None, paired_at=None, pairing_code=new_pairing_code()))
 
 
 async def archive_pixel(pid: int):
     """'Remove' in the portal: unpair and hide, but keep the conversation history (turns stay attached)."""
-    await execute(sa.update(m.pixels).where(m.pixels.c.id == pid).values(archived=True, token_hash=None, pairing_code=None, paired_at=None))
+    await execute(sa.update(m.pixels).where(m.pixels.c.id == pid).values(
+        archived=True, prev_household_id=sa.func.coalesce(m.pixels.c.household_id, m.pixels.c.prev_household_id), household_id=None, token_hash=None, pairing_code=None, paired_at=None))
 
 
 async def delete_pixel(pid: int): await execute(sa.delete(m.pixels).where(m.pixels.c.id == pid))

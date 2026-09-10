@@ -48,7 +48,7 @@ label{display:block;margin:14px 0 6px;font-size:13px;color:#9aa}input,select{wid
 button{margin-top:20px;width:100%%;padding:14px;background:#f5b301;border:0;border-radius:8px;font-weight:700;font-size:16px}small{color:#9aa}</style></head><body>
 <h1>Hi, I'm %NAME%</h1><p>Tell me which Wi-Fi to join. I'll then show a pairing code on my face - add me in the Pixel portal with it.</p>
 <form method=post action=/save><label>Wi-Fi network</label><select name=ssid id=ssid>%NETS%</select><input name=ssid2 placeholder="or type a network name" style="margin-top:8px">
-<label>Password</label><input name=pass type=password><label>Brain address <small>(leave as is unless told otherwise)</small></label><input name=host value="%HOST%">
+<label>Password</label><input name=pass type=password><label>Brain address <small>(leave as is unless told otherwise; a dev brain is http://host:8765)</small></label><input name=host value="%HOST%">
 <input type=hidden name=port value="%PORT%"><input type=hidden name=tls value="%TLS%"><button>Save & connect</button></form></body></html>)HTML";
 
 static String scanOptions() {
@@ -76,6 +76,7 @@ static void handleSave() {
     host.replace("https://", ""); host.replace("http://", "");
     int c = host.indexOf(':');
     if (c > 0) { prefs::brainPort = host.substring(c + 1).toInt(); host = host.substring(0, c); }
+    else if (explicitScheme) prefs::brainPort = prefs::brainTls ? 443 : 80;   // scheme given, no port: that scheme's default (dev brains: type host:8765)
     else { int prt = http_->arg("port").toInt(); prefs::brainPort = prt > 0 ? prt : (prefs::brainTls ? 443 : 8765); }
     strlcpy(prefs::brainHost, host.c_str(), sizeof prefs::brainHost);
   }

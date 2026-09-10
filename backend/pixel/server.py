@@ -14,7 +14,7 @@ from pathlib import Path
 
 import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 
 from . import ambient, auth, bus, config as C, firmware, inference, llm, memory, obs, repo, settings, tools
 from .chunker import Chunker
@@ -35,7 +35,8 @@ FLUSH = "\x00FLUSH"     # in-band marker: "the model's pre-tool sentence is comp
 PORTAL_DIR = Path(__file__).resolve().parent / "portal"
 STT_JUNK = {"thank you.", "thank you", "thanks.", "you", "you.", "bye.", "bye", ".", "thank you for watching.", "thanks for watching.", "hmm.", "uh.", "okay.", "so."}
 MIN_UTTERANCE_S, POST_SPEECH_GUARD_S = 0.4, 0.4
-MAX_PENDING_DEVICES = 50               # unclaimed registrations allowed at once (F11); stale ones expire after 7 days
+MAX_PENDING_DEVICES = 50               # unclaimed registrations allowed at once (F11); never-claimed ones expire after 7 days
+PAIRING_SESSION_S = 15 * 60            # an unpaired socket is closed after this; the device simply reconnects
 
 sessions: dict[str, "Session"] = {}       # device_id -> live session in THIS process
 started_at = time.time()
@@ -74,10 +75,12 @@ async def health():
     parts = {}
     try: await repo.default_household(); parts["db"] = True
     except Exception: parts["db"] = False
-    try: await bus.presence_all([]); parts["redis"] = True
+    try: parts["redis"] = await bus.ping()
     except Exception: parts["redis"] = False
     parts["worker"] = await inference.ready()
-    return {"ok": all(parts.values()), "parts": parts, "providers": auth.providers()}
+    ok = all(parts.values())
+    body = {"ok": ok, "parts": parts, "providers": auth.providers()}
+    return body if ok else JSONResponse(body, status_code=503)
 
 
 @app.get("/api/health")
@@ -138,7 +141,8 @@ async def respond(ws: WebSocket | None, sess: "Session | None", cfg: dict, user_
             obs.STAGE.labels("first_audio").observe(t_audio)
             if sess: sess.speaking_until = time.time() + 30
         pause = 0 if not last_end else PAUSE_SENTENCE_MS if last_end in ".!?" else PAUSE_CLAUSE_MS if last_end in ",;:" else 0
-        if pause: await ws.send_bytes(b"\x00" * (C.SAMPLE_RATE * 2 * pause // 1000))
+        if pause:
+            gap = b"\x00" * (C.SAMPLE_RATE * 2 * pause // 1000); audio_bytes += len(gap); await ws.send_bytes(gap)
         await send_json(ws, type="chunk", id=cid, state="audio")
         audio_bytes += len(pcm)
         for i in range(0, len(pcm), C.AUDIO_FRAME_BYTES):
@@ -285,24 +289,35 @@ async def ws_endpoint(ws: WebSocket):
     else:
         # Physical device: identity key binds device_id to the unit (survives factory reset); token binds it to a household.
         key = hello.get("device_key") if isinstance(hello.get("device_key"), str) and 16 <= len(hello.get("device_key")) <= 128 else None
+        source = ws.client.host if ws.client else "?"
+        if pixel and pixel.get("archived"):
+            # Removed in the portal: that ended its household authorization. It re-enters as a fresh, unpaired registration.
+            pixel = await repo.get_or_create_pixel(device_id, pixel["device_type"], capabilities=caps)
+            log.info("device.reregistered", device=device_id)
         if not pixel:
+            if not await bus.registration_allowed(source): await ws.close(code=4029, reason="too many registrations from this address"); return
             if await repo.count_pending() >= MAX_PENDING_DEVICES: await ws.close(code=4029, reason="too many unclaimed devices"); return
             pixel = await repo.get_or_create_pixel(device_id, requested_type, capabilities=caps)
             if key: await repo.set_pixel_key(pixel["id"], key); pixel = await repo.pixel(pixel["id"])
             log.info("device.registered", device=device_id, keyed=bool(key))
-        elif pixel.get("device_key_hash"):
+        paired = bool(pixel.get("household_id"))
+        token_ok = paired and repo.token_valid(pixel, hello.get("token"))
+        if pixel.get("device_key_hash"):
             if not repo.key_valid(pixel, key):
                 log.warning("device.identity_mismatch", device=device_id); await ws.close(code=4001, reason="device identity mismatch"); return
         elif key:
-            await repo.set_pixel_key(pixel["id"], key); pixel = await repo.pixel(pixel["id"])   # first keyed connection of a legacy row
-            log.info("device.keyed", device=device_id)
-        paired = bool(pixel.get("household_id"))
-        if paired and not repo.token_valid(pixel, hello.get("token")):
-            if pixel.get("token_hash") is None:
-                tok = await repo.issue_token(pixel["id"])                # grandfathered device (paired before tokens existed)
+            # Legacy row without a key: enrol one ONLY on a connection that is already trusted (valid token, or an unpaired
+            # row nobody owns). A paired legacy row with a bad token must not be able to plant an attacker's key (R1).
+            if token_ok or not paired:
+                await repo.set_pixel_key(pixel["id"], key); pixel = await repo.pixel(pixel["id"]); log.info("device.keyed", device=device_id)
+            else:
+                log.warning("device.bad_token", device=device_id); await ws.close(code=4001, reason="unauthorized"); return
+        if paired and not token_ok:
+            if pixel.get("token_hash") is None and pixel.get("paired_at") is not None and not pixel.get("device_key_hash"):
+                tok = await repo.issue_token(pixel["id"])                # grandfathered device (paired before tokens existed, never keyed)
                 await send_json(ws, type="paired", token=tok, name=pixel["name"]); log.info("device.grandfathered", device=device_id)
             elif pixel.get("device_key_hash"):
-                # The physical unit (identity proven) lost its token: factory reset or on-device un-pair. Release it so it can be claimed again.
+                # The physical unit (identity proven above) lost its token: factory reset or on-device un-pair. Release it for re-pairing.
                 await repo.unpair(pixel["id"]); await repo.device_event(pixel["id"], "released", reason="device lost its token")
                 pixel = await repo.pixel(pixel["id"]); paired = False; log.info("device.released", device=device_id)
             else:
@@ -314,8 +329,9 @@ async def ws_endpoint(ws: WebSocket):
         if not pixel.get("pairing_code"): await repo.update_pixel(pixel["id"], pairing_code=code)
         await send_json(ws, type="pairing", code=code)
         log.info("device.unpaired", device=device_id, code=code)
+        pairing_deadline = time.time() + PAIRING_SESSION_S
         try:
-            while True:
+            while time.time() < pairing_deadline:
                 try: msg = await asyncio.wait_for(ws.receive(), timeout=2.0)
                 except asyncio.TimeoutError: msg = None
                 if msg and msg.get("type") == "websocket.disconnect": return
@@ -323,6 +339,7 @@ async def ws_endpoint(ws: WebSocket):
                     if m_.get("type") == "paired":
                         await send_json(ws, type="paired", token=m_["token"], name=m_.get("name"))
                         await ws.close(code=4003, reason="paired - reconnect with token"); return
+            await ws.close(code=4008, reason="pairing session expired - reconnect"); return
         except WebSocketDisconnect: return
 
     sess = Session(ws, pixel); sessions[device_id] = sess

@@ -29,3 +29,18 @@ brain's copies; `voicelab/` itself is experimental and out of scope. Status per 
 Tests: `tests/test_access.py` adds two-household adversarial HTTP and WebSocket cases (impersonation, code takeover, foreign
 record mutation, admin gates, settings validation, public health shape). Still open from the audit's coverage list: OTA failure
 paths on hardware, browser playback cancellation, end-to-end audio timing from last spoken word.
+
+
+## Re-audit (`2026-09-10-pixel-reaudit.md`) — R1–R8
+
+| # | Fix | Test |
+|---|---|---|
+| R1 | A legacy row (no identity key) enrols a key only on a trusted connection: valid token, or an unowned row. A paired legacy row with a bad token is closed 4001 and nothing is stored | `test_legacy_row_cannot_be_hijacked_by_planting_a_key` |
+| R2 | Archive now clears `household_id` (remembering it in `prev_household_id`); an archived unit that reconnects is re-registered as unpaired and must be claimed again. The grandfather branch requires "paired, no token ever, never keyed" | `test_removed_device_loses_household_access` |
+| R3 | `expire_pending` deletes only rows that were never claimed (`prev_household_id IS NULL`), have no turns and are not archived; `touch_pixel` refreshes `last_seen_at` on every authenticated connection | `test_retention_never_deletes_devices_with_history` |
+| R4 | `prev_household_id` is set on unpair/archive; `pair()` resets the persona whenever the last owner differs from the new one, so unpair → claim by someone else starts clean while the owner re-pairing keeps theirs | `test_unpair_then_claim_by_another_household_resets_persona` |
+| R5 | `/health` uses Redis PING and returns **503** when any part is not ready (Compose `curl -f` and the CI smoke test now fail on it) | `test_health_reports_503_when_a_dependency_is_down` |
+| R6 | Backup mirrors dump + firmware archive + env to B2, exits non-zero on any partial set; `restore.sh` restores firmware volume and (optionally) env | source |
+| R7 | Per-source limit: 5 anonymous registrations per IP per hour (Redis), plus the global cap; unpaired sockets are closed after 15 min (device reconnects) | source |
+| R8 | Explicit `http://`/`https://` without a port selects that scheme's default port (80/443); bare host keeps hidden defaults; form hint documents `http://host:8765` for dev brains | firmware 0.4.1 |
+| misc | `ws_refused` asserts a policy close code (4001/4003/4029); inter-chunk pauses counted in `audio_s`; OTA has a 10-minute total deadline | |

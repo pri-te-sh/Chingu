@@ -43,3 +43,15 @@ async def inbox_drain(device_id: str) -> list[dict]:
         p.lrange(key, 0, -1); p.delete(key)
         items, _ = await p.execute()
     return [json.loads(i) for i in items]
+
+
+async def ping() -> bool:
+    return bool(await redis().ping())
+
+
+async def registration_allowed(source: str, limit: int = 5, window_s: int = 3600) -> bool:
+    """Per-source (IP) cap on anonymous device registrations: `limit` new device ids per `window_s`."""
+    k = f"reg:{source}"
+    n = await redis().incr(k)
+    if n == 1: await redis().expire(k, window_s)
+    return n <= limit

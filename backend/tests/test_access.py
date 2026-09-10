@@ -37,13 +37,15 @@ def cleanup(client, *hids):
     client.portal.call(_cl)
 
 
-def ws_refused(client, hello, cookies=None):
-    """True if the server closes the socket instead of answering the hello."""
+def ws_refused(client, hello, cookies=None, codes=(4001, 4003, 4029)):
+    """True only if the server *deliberately* closes the socket with one of the expected policy codes."""
+    from starlette.websockets import WebSocketDisconnect
     try:
         with client.websocket_connect("/ws", cookies=cookies) as ws:
             ws.send_text(json.dumps(hello)); ws.receive_text()
         return False
-    except Exception:
+    except WebSocketDisconnect as e:
+        assert e.code in codes, f"closed with unexpected code {e.code}"
         return True
 
 
@@ -151,3 +153,82 @@ def test_settings_are_validated_before_persisting(client):
 def test_public_health_has_no_identities(client):
     d = client.get("/health").json()
     assert "devices" not in d and "household" not in d and "parts" in d
+
+
+def test_legacy_row_cannot_be_hijacked_by_planting_a_key(client):
+    """R1: a paired device that has no identity key yet must not accept an attacker's key on a bad-token connection."""
+    ua, ha, ca = make_user(client, "owner")
+    dev = f"lite-{uuid.uuid4().hex[:6]}"
+    try:
+        p = run(client, repo.get_or_create_pixel, dev, "lite", household_id=ha)
+        token = run(client, repo.issue_token, p["id"])                     # legacy: token, no key
+        assert ws_refused(client, {"type": "hello", "device": dev, "device_type": "lite", "device_key": "attacker-planted-key-000000", "token": "wrong"})
+        row = run(client, repo.pixel_by_device, dev)
+        assert row["household_id"] == ha and row["device_key_hash"] is None      # still owned, nothing enrolled
+        # the real unit (valid token) enrols its key on its next connection
+        with client.websocket_connect("/ws") as ws:
+            ws.send_text(json.dumps({"type": "hello", "device": dev, "device_type": "lite", "device_key": "real-unit-key-1234567890", "token": token}))
+            assert json.loads(ws.receive_text())["type"] == "ready"
+        assert run(client, repo.pixel_by_device, dev)["device_key_hash"] is not None
+        assert ws_refused(client, {"type": "hello", "device": dev, "device_type": "lite", "device_key": "attacker-planted-key-000000", "token": token})
+    finally: cleanup(client, ha)
+
+
+def test_removed_device_loses_household_access(client):
+    """R2: portal REMOVE (archive) ends authorization; the unit comes back only as an unpaired registration."""
+    ua, ha, ca = make_user(client, "owner")
+    dev = f"lite-{uuid.uuid4().hex[:6]}"
+    try:
+        p = run(client, repo.get_or_create_pixel, dev, "lite", household_id=ha)
+        run(client, repo.issue_token, p["id"]); run(client, repo.set_pixel_key, p["id"], "unit-key-abcdefghijklmnop")
+        run(client, repo.archive_pixel, p["id"])
+        with client.websocket_connect("/ws") as ws:
+            ws.send_text(json.dumps({"type": "hello", "device": dev, "device_type": "lite", "device_key": "unit-key-abcdefghijklmnop"}))
+            msg = json.loads(ws.receive_text()); assert msg["type"] == "pairing"
+        row = run(client, repo.pixel_by_device, dev)
+        assert row["household_id"] is None and row["token_hash"] is None and row["archived"] is False
+    finally: cleanup(client, ha)
+
+
+def test_unpair_then_claim_by_another_household_resets_persona(client):
+    """R4: the supported transfer path (unpair -> claim) must not carry the previous owner's persona."""
+    ua, ha, ca = make_user(client, "alice"); ub, hb, cb = make_user(client, "bob")
+    dev = f"lite-{uuid.uuid4().hex[:6]}"
+    try:
+        p = run(client, repo.get_or_create_pixel, dev, "lite", household_id=ha)
+        run(client, repo.update_persona, p["id"], {"persona": "knows alice's bank pin is 4242"})
+        run(client, repo.unpair, p["id"]); code = run(client, repo.pixel, p["id"])["pairing_code"]
+        assert client.post("/api/pixels/claim", json={"code": code}, cookies=cb, headers=HDR).status_code == 200
+        assert run(client, repo.persona, p["id"]) == {}
+        # alice re-pairing her own device keeps its persona
+        p2 = run(client, repo.get_or_create_pixel, f"lite-{uuid.uuid4().hex[:6]}", "lite", household_id=ha)
+        run(client, repo.update_persona, p2["id"], {"persona": "mine"}); run(client, repo.unpair, p2["id"])
+        code2 = run(client, repo.pixel, p2["id"])["pairing_code"]
+        assert client.post("/api/pixels/claim", json={"code": code2}, cookies=ca, headers=HDR).status_code == 200
+        assert run(client, repo.persona, p2["id"]).get("persona") == "mine"
+    finally: cleanup(client, ha, hb)
+
+
+def test_retention_never_deletes_devices_with_history(client):
+    """R3: expire_pending removes only never-claimed, history-free registrations."""
+    import datetime as dt
+    ua, ha, ca = make_user(client, "owner")
+    dev = f"lite-{uuid.uuid4().hex[:6]}"; fresh = f"lite-{uuid.uuid4().hex[:6]}"
+    try:
+        p = run(client, repo.get_or_create_pixel, dev, "lite", household_id=ha)
+        run(client, repo.log_turn, p["id"], ha, user_text="hi", reply="hello")
+        run(client, repo.unpair, p["id"])
+        q = run(client, repo.get_or_create_pixel, fresh, "lite")                  # never claimed, no history
+        old = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=8)
+        run(client, repo.update_pixel, p["id"], last_seen_at=old); run(client, repo.update_pixel, q["id"], last_seen_at=old)
+        run(client, repo.expire_pending, 7)
+        assert run(client, repo.pixel, p["id"]) is not None and run(client, repo.count_turns, ha) == 1
+        assert run(client, repo.pixel, q["id"]) is None
+    finally: cleanup(client, ha)
+
+
+def test_health_reports_503_when_a_dependency_is_down(client, monkeypatch):
+    from pixel import inference
+    async def down(): return False
+    monkeypatch.setattr(inference, "ready", down)
+    r = client.get("/health"); assert r.status_code == 503 and r.json()["parts"]["worker"] is False
