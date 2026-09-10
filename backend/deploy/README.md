@@ -30,3 +30,5 @@ in the portal (PIXELS > FIRMWARE), or on the box: `docker compose exec -T brain 
 - Only 22/80/443 open (ufw). Brain, Postgres, Redis and Kuma are bound to localhost/Docker network; Caddy terminates TLS.
 - SSH keys only, fail2ban on sshd, unattended security upgrades.
 - Devices authenticate with per-device tokens (hashed in DB); firmware binaries are public but SHA-256 pinned by the manifest.
+
+First automated deployment: 2026-09-10.
