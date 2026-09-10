@@ -273,3 +273,19 @@ def test_tokenless_legacy_row_is_not_authenticated_by_device_id_alone(client):
         assert ws_refused(client, {"type": "hello", "device": dev, "device_type": "lite", "device_key": "some-new-key-0123456789ab"})
         assert run(client, repo.pixel_by_device, dev)["household_id"] == ha
     finally: cleanup(client, ha)
+
+
+def test_history_search_is_server_side_and_scoped(client):
+    """UX03: history search/pagination covers the whole household history and never another household's turns."""
+    ua, ha, ca = make_user(client, "alice"); ub, hb, cb = make_user(client, "bob")
+    try:
+        pa = run(client, repo.get_or_create_pixel, f"lite-{uuid.uuid4().hex[:6]}", "lite", household_id=ha)
+        pb = run(client, repo.get_or_create_pixel, f"lite-{uuid.uuid4().hex[:6]}", "lite", household_id=hb)
+        for i in range(7): run(client, repo.log_turn, pa["id"], ha, user_text=f"alice turn {i} about basil", reply="ok")
+        run(client, repo.log_turn, pb["id"], hb, user_text="bob secret basil recipe", reply="ok")
+        r = client.get("/api/history?q=basil&limit=3", cookies=ca).json()
+        assert r["total"] == 7 and len(r["turns"]) == 3 and all("alice" in t["user"] for t in r["turns"])
+        r2 = client.get("/api/history?q=basil&limit=3&offset=6", cookies=ca).json()
+        assert len(r2["turns"]) == 1 and sum(d["n"] for d in r2["days"]) == 7
+        assert client.get(f"/api/history?device={pb['id']}", cookies=ca).status_code == 404       # bob's pixel is not filterable by alice
+    finally: cleanup(client, ha, hb)

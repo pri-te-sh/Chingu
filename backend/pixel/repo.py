@@ -246,6 +246,27 @@ async def turns(hid: int | None = None, pid: int | None = None, limit=200, day: 
     rows = await fetch_all(q.order_by(m.turns.c.id.desc()).limit(limit))
     return list(reversed(rows))
 
+async def search_turns(hid: int, q: str | None = None, day: str | None = None, tz: str | None = None, pid: int | None = None, limit: int = 200, offset: int = 0) -> tuple[list[dict], int]:
+    """Server-side history: newest first, filtered by text (user or reply, case-insensitive), local day and pixel; returns (rows, total)."""
+    base = sa.select(m.turns).where(m.turns.c.household_id == hid)
+    if pid is not None: base = base.where(m.turns.c.pixel_id == pid)
+    if day: base = base.where(sa.func.to_char(sa.func.timezone(tz or "UTC", m.turns.c.ts), "YYYY-MM-DD") == day)
+    if q:
+        like = f"%{q.strip()}%"
+        base = base.where(sa.or_(m.turns.c.user_text.ilike(like), m.turns.c.reply.ilike(like)))
+    total = await fetch_val(sa.select(sa.func.count()).select_from(base.subquery()))
+    rows = await fetch_all(base.order_by(m.turns.c.id.desc()).limit(limit).offset(offset))
+    return rows, int(total or 0)
+
+
+async def turn_days(hid: int, tz: str | None = None, pid: int | None = None) -> list[dict]:
+    """Turn counts per local day over the WHOLE history (not just a page)."""
+    day = sa.func.to_char(sa.func.timezone(tz or "UTC", m.turns.c.ts), "YYYY-MM-DD").label("day")
+    q = sa.select(day, sa.func.count().label("n")).where(m.turns.c.household_id == hid)
+    if pid is not None: q = q.where(m.turns.c.pixel_id == pid)
+    return await fetch_all(q.group_by(day).order_by(day.desc()))
+
+
 async def last_turn_ts(hid: int) -> dt.datetime | None:
     async with engine().connect() as c:
         return (await c.execute(sa.select(sa.func.max(m.turns.c.ts)).where(m.turns.c.household_id == hid))).scalar()

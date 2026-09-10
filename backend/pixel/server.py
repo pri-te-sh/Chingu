@@ -683,6 +683,18 @@ async def api_ambient(request: Request, pixel: int | None = None):
 async def api_ambient_refresh(request: Request, pixel: int | None = None):
     _, _, cfg = await scope(request, pixel); return await ambient.refresh(cfg)
 
+@app.get("/api/history")
+async def api_history(request: Request, q: str | None = None, day: str | None = None, device: int | None = None, limit: int = 200, offset: int = 0, pixel: int | None = None):
+    """Paginated, searchable history over ALL turns of the household (the portal groups a page into conversations)."""
+    h, _, cfg = await scope(request, pixel)
+    limit = max(1, min(limit, 500)); offset = max(0, offset)
+    if device is not None and not any(x["id"] == device for x in await repo.pixels_in_household(h["id"], include_archived=True)): raise HTTPException(404, "no such pixel")
+    rows, total = await repo.search_turns(h["id"], q=q, day=day, tz=cfg["timezone"], pid=device, limit=limit, offset=offset)
+    for r in rows: r["user"] = r.pop("user_text", None)
+    return {"total": total, "offset": offset, "limit": limit, "turns": rows, "days": await repo.turn_days(h["id"], cfg["timezone"], device),
+            "session_gap_min": cfg["session_gap_min"], "timezone": cfg["timezone"]}
+
+
 @app.get("/api/turns")
 async def api_turns(request: Request, day: str | None = None, limit: int = 200, pixel: int | None = None):
     h, _, cfg = await scope(request, pixel)
