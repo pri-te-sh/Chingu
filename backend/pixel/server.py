@@ -17,6 +17,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response, WebSocke
 from fastapi.responses import FileResponse, RedirectResponse
 
 from . import ambient, auth, bus, config as C, firmware, inference, llm, memory, obs, repo, settings, tools
+from .chunker import Chunker
 from starlette.middleware.sessions import SessionMiddleware
 from .vad import EnergyVAD
 
@@ -27,6 +28,9 @@ app = FastAPI(title="pixel-brain")
 app.include_router(firmware.router)
 app.add_middleware(SessionMiddleware, secret_key=auth.SESSION_SECRET, session_cookie="pixel_oauth", same_site="lax", https_only=False)
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+PAUSE_CLAUSE_MS, PAUSE_SENTENCE_MS = 140, 320
+_INLINE_TAG = re.compile(r"\s*\[([a-z_]+)\s+([0-9.]+)\]\s*")   # models sometimes re-tag mid-reply; never read those aloud     # breathing room inserted *before* a chunk, based on how the previous one ended
+_chunk_seq = 0
 FLUSH = "\x00FLUSH"     # in-band marker: "the model's pre-tool sentence is complete, start the final reply clean"
 PORTAL_DIR = Path(__file__).resolve().parent / "portal"
 STT_JUNK = {"thank you.", "thank you", "thanks.", "you", "you.", "bye.", "bye", ".", "thank you for watching.", "thanks for watching.", "hmm.", "uh.", "okay.", "so."}
@@ -97,20 +101,52 @@ async def respond(ws: WebSocket | None, sess: "Session | None", cfg: dict, user_
     tools_used: list[dict] = []; steps: list[str] = []
     tool_defs = tools.definitions(cfg) if cfg["tools_enabled"] else None
 
-    async def speak(text: str):
-        nonlocal speech_started, t_audio, audio_bytes
-        text = text.strip()
-        if not text or not ws or not want_audio: return
-        await asyncio.sleep(0)
+    # --- speech pipeline: chunks queue up while the LLM keeps streaming; a speaker task synthesises and sends them in order ---
+    tts_q: asyncio.Queue = asyncio.Queue()
+    last_end = ""
+
+    async def _emit(cid: int, text: str):
+        nonlocal speech_started, t_audio, audio_bytes, last_end
+        if ws: await send_json(ws, type="chunk", id=cid, state="synth")
+        pcm = await inference.synthesize(text)
         if not speech_started:
             await send_json(ws, type="speech_start", sr=C.SAMPLE_RATE)
             speech_started = True; t_audio = time.time() - t0
             obs.STAGE.labels("first_audio").observe(t_audio)
             if sess: sess.speaking_until = time.time() + 30
-        pcm = await inference.synthesize(text)
+        pause = PAUSE_SENTENCE_MS if last_end in ".!?" else PAUSE_CLAUSE_MS if last_end in ",;:" else 0
+        if pause: await ws.send_bytes(b"\x00" * (C.SAMPLE_RATE * 2 * pause // 1000))
+        await send_json(ws, type="chunk", id=cid, state="audio")
         audio_bytes += len(pcm)
         for i in range(0, len(pcm), C.AUDIO_FRAME_BYTES):
             await ws.send_bytes(pcm[i:i + C.AUDIO_FRAME_BYTES])
+        await send_json(ws, type="chunk", id=cid, state="ready", audio_s=round(len(pcm) / 2 / C.SAMPLE_RATE, 2))
+        last_end = text.rstrip()[-1:]
+
+    async def speaker():
+        while True:
+            item = await tts_q.get()
+            if item is None: return
+            await _emit(*item)
+
+    speaker_task = asyncio.create_task(speaker()) if (ws and want_audio) else None
+
+    async def speak(text: str):
+        """Queue a chunk for speech (returns immediately; audio streams from the speaker task)."""
+        global _chunk_seq
+        nonlocal expr, inten
+        for m_ in _INLINE_TAG.finditer(text):                  # a mid-reply tag becomes an expression change, not speech
+            try: expr, inten = m_.group(1), float(m_.group(2))
+            except ValueError: pass
+            if ws: await send_json(ws, type="expression", name=expr, intensity=inten)
+        text = _INLINE_TAG.sub(" ", text).strip()
+        if not text or not ws or not want_audio: return
+        _chunk_seq += 1
+        await send_json(ws, type="chunk", id=_chunk_seq, text=text, state="queued")
+        await tts_q.put((_chunk_seq, text))
+
+    async def drain():
+        if speaker_task: await tts_q.put(None); await speaker_task
 
     async def say_step(text: str, expression: str):
         text = text.strip()
@@ -151,10 +187,12 @@ async def respond(ws: WebSocket | None, sess: "Session | None", cfg: dict, user_
                 messages = messages + [{"role": "tool", "tool_name": name, "content": res}]
 
     error = None
+    chunker = Chunker()
     try:
         async for delta in stream_with_tools():
             if delta == FLUSH:
-                if pending.strip(): await speak(pending)
+                for c in chunker.flush(): await speak(c)
+                pending = ""
                 if spoken_all.strip(): steps.append(re.sub(r"\s+", " ", spoken_all).strip())
                 pending, tagged, spoken_all = "", "", ""
                 tag_done = False; had_expr = True
@@ -170,17 +208,17 @@ async def respond(ws: WebSocket | None, sess: "Session | None", cfg: dict, user_
                 obs.STAGE.labels("expression").observe(t_expr)
                 if ws: await send_json(ws, type="expression", name=expr, intensity=inten)
                 delta = rest
-            pending += delta; spoken_all += delta
-            parts = _SENTENCE_END.split(pending)
-            if len(parts) > 1:
-                for sentence in parts[:-1]: await speak(sentence)
-                pending = parts[-1]
-        if not tag_done and tagged: pending += tagged; spoken_all += tagged
-        await speak(pending)
+            spoken_all += delta
+            for c in chunker.feed(delta): await speak(c)
+        if not tag_done and tagged: spoken_all += tagged; chunker.feed(tagged)
+        for c in chunker.flush(): await speak(c)
+        await drain()
     except asyncio.CancelledError:
+        if speaker_task: speaker_task.cancel()
         raise
     except Exception as e:
         error = repr(e); log.error("turn.failed", error=error)
+        if speaker_task and not speaker_task.done(): speaker_task.cancel()
         if ws: await send_json(ws, type="error", message=str(e))
     if speech_started and ws: await send_json(ws, type="speech_end")
     spoken_all = spoken_all.strip()

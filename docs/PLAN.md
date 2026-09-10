@@ -92,7 +92,8 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 - [x] `voicelab/` scaffold + bench CLI: STT (faster-whisper base/small/distil, Parakeet-TDT 0.6B), TTS CPU (Piper, Kokoro, Supertonic, Pocket TTS), TTS on Modal GPU (Kokoro, Chatterbox, Qwen3-TTS, VoxCPM, CosyVoice3, Fish scaffold), VAD energy vs Silero
 - [x] Test-bed web app: HEAR / SPEAK / TALK (chunk pipeline visualised inline, pauses, echo-proof barge-in) / RESULTS
 - [x] **Decision 2026-09-10: keep Piper for now; Modal apps stopped; lab parked.** Full findings in `docs/VOICE_LAB.md`
-- [ ] Port to the brain when convenient: Parakeet STT (verify on real mic first), clause chunker + pauses, echo-proof barge-in
+- [x] Ported to the brain 2026-09-10: clause chunker (first clause early, ≤160 chars, all boundaries), queued speaker task (TTS overlaps LLM streaming), punctuation pauses (140/320 ms), per-chunk `chunk` events shown inline in the simulator, mid-reply expression tags stripped from speech
+- [ ] Parakeet STT behind a flag after a real-mic HEAR run in the lab
 
 ### P3 — Cutover to a VM (Hetzner CX23 or home box + Cloudflare Tunnel; Oracle dropped)
 - [x] **Hetzner CX23** (Ubuntu 26.04, 2 vCPU/4 GB, 2.29.41.213, SSH key "hetzner") bootstrapped 2026-09-10: docker, ufw 22/80/443, fail2ban, unattended-upgrades, `pixel` user, stack up with prod profile, laptop DB restored (104 turns, 3 pixels), nightly backups cron
