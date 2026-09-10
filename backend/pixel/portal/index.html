@@ -51,7 +51,9 @@ input[type=checkbox]{width:18px;height:18px;appearance:none;border:3px solid var
 .term{font:20px "VT323";background:var(--term);border:3px solid var(--edge);padding:12px;max-height:420px;overflow:auto;color:var(--termtxt);white-space:pre-wrap}
 .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--card);border:4px solid var(--amber);padding:12px 18px;box-shadow:4px 4px 0 var(--shadow);opacity:0;transition:.15s;z-index:20;font-family:"Press Start 2P";font-size:10px}.toast.on{opacity:1}
 .dirty{display:none;color:var(--amber)}.dirty.on{display:inline}
-#login{max-width:420px;margin:90px auto}.sw{width:30px;height:30px;border:3px solid var(--shadow);box-shadow:3px 3px 0 var(--shadow);cursor:pointer}
+#login{max-width:420px;margin:90px auto}
+body.login #nav,body.login #pxsel,body.login #userbtn,body.login #usermenu{display:none!important}
+.gbtn{display:inline-flex;align-items:center;gap:12px;text-decoration:none}.gbtn svg{width:22px;height:22px;background:#fff;border-radius:3px;padding:3px;box-sizing:content-box}.sw{width:30px;height:30px;border:3px solid var(--shadow);box-shadow:3px 3px 0 var(--shadow);cursor:pointer}
 #theme{font-family:"Press Start 2P";font-size:11px;background:var(--bg2);color:var(--txt);border:3px solid var(--edge);padding:7px 10px;cursor:pointer;box-shadow:3px 3px 0 var(--shadow)}#theme:hover{border-color:var(--amber)}
 .kbd{font-size:17px;color:var(--muted)}
 #splash{position:fixed;inset:0;z-index:50;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;cursor:pointer}
@@ -114,7 +116,7 @@ header{position:relative}
 
 <main>
 <div id="login" class="px card" style="display:none"><h3>SIGN IN</h3><div id="login-msg" class="red" style="min-height:24px"></div>
- <div id="login-google" style="display:none;margin-bottom:14px"><a class="btn" href="/auth/google" style="display:inline-block;text-decoration:none">CONTINUE WITH GOOGLE</a></div>
+ <div id="login-google" style="display:none;margin-bottom:14px"><a class="btn gbtn" href="/auth/google"><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.5l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4.1 7.1-10.1 7.1-17.5z"/><path fill="#FBBC05" d="M10.5 28.7A14.6 14.6 0 0 1 9.7 24c0-1.6.3-3.2.8-4.7l-7.9-6.1A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.8l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.3 0 11.7-2.1 15.6-5.7l-7.5-5.8c-2.1 1.4-4.8 2.3-8.1 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg>CONTINUE WITH GOOGLE</a></div>
  <div id="login-dev" style="display:none"><label>EMAIL</label><input id="li-email" type="email" autocomplete="username"><label>PASSWORD</label><input id="li-pass" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')devLogin()"><div style="margin-top:16px"><button class="btn" onclick="devLogin()">SIGN IN</button><span class="kbd" style="margin-left:12px">dev login · credentials from .env</span></div></div>
  <div id="login-none" class="muted" style="display:none">No sign-in method is configured on this brain.</div></div>
 
@@ -224,8 +226,8 @@ function go(p){const all=[...Object.keys(pages),'profile'];if(!all.includes(p))p
 /* ---------- api / auth ---------- */
 function withPixel(path){if(!PIXEL_ID)return path;if(/^\/(me|household|pixels|models|config\/defaults)(\/|\?|$)/.test(path))return path;return path+(path.includes('?')?'&':'?')+'pixel='+PIXEL_ID}
 async function api(path,opt={}){path=withPixel(path);const r=await fetch('/api'+path,{...opt,credentials:'same-origin',headers:{'Content-Type':'application/json','X-Requested-With':'pixel'}});if(r.status===401){showLogin('');throw new Error('auth')}if(!r.ok)throw new Error(await r.text());return r.json()}
-function showLogin(msg){endSplash(true);document.querySelector('main>section.on')?.classList.remove('on');$('#login').style.display='block';$('#login-msg').textContent=msg||'';$('#login-google').style.display=PROVIDERS.google?'block':'none';$('#login-dev').style.display=PROVIDERS.dev?'block':'none';$('#login-none').style.display=(!PROVIDERS.google&&!PROVIDERS.dev)?'block':'none'}
-async function devLogin(){const r=await fetch('/auth/dev',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-Requested-With':'pixel'},body:JSON.stringify({email:$('#li-email').value,password:$('#li-pass').value})});if(!r.ok){$('#login-msg').textContent='Those credentials were not accepted.';return}$('#login').style.display='none';$('#li-pass').value='';start()}
+function showLogin(msg){endSplash(true);document.body.classList.add('login');document.querySelector('main>section.on')?.classList.remove('on');$('#login').style.display='block';$('#login-msg').textContent=msg||'';$('#login-google').style.display=PROVIDERS.google?'block':'none';$('#login-dev').style.display=PROVIDERS.dev?'block':'none';$('#login-none').style.display=(!PROVIDERS.google&&!PROVIDERS.dev)?'block':'none'}
+async function devLogin(){const r=await fetch('/auth/dev',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-Requested-With':'pixel'},body:JSON.stringify({email:$('#li-email').value,password:$('#li-pass').value})});if(!r.ok){$('#login-msg').textContent='Those credentials were not accepted.';return}$('#login').style.display='none';document.body.classList.remove('login');$('#li-pass').value='';start()}
 async function signOut(){await fetch('/auth/logout',{method:'POST',credentials:'same-origin',headers:{'X-Requested-With':'pixel'}});location.hash='';location.reload()}
 
 /* ---------- splash: Pixel wakes up ---------- */
@@ -424,7 +426,7 @@ function simText(){const t=$('#sim-text').value.trim();if(!t||!SIM.ws)return;$('
 /* ---------- boot ---------- */
 if('scrollRestoration' in history)history.scrollRestoration='manual';
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue=''}});
-async function start(){try{const me=await (await fetch('/api/me',{credentials:'same-origin'})).json();PROVIDERS=me.providers||{};ME=me.user;if(!ME){showLogin('');return}$('#menu-who').textContent=(ME.name||ME.email||'');$('#userbtn').textContent=(ME.name||'ME').split(' ')[0].slice(0,8).toUpperCase();$('#login').style.display='none';await loadPixels();CFG=await api('/config');SPL.ready=true}catch(e){SPL.ready=true}
+async function start(){try{const me=await (await fetch('/api/me',{credentials:'same-origin'})).json();PROVIDERS=me.providers||{};ME=me.user;if(!ME){showLogin('');return}$('#menu-who').textContent=(ME.name||ME.email||'');$('#userbtn').textContent=(ME.name||'ME').split(' ')[0].slice(0,8).toUpperCase();$('#login').style.display='none';document.body.classList.remove('login');await loadPixels();CFG=await api('/config');SPL.ready=true}catch(e){SPL.ready=true}
  window.scrollTo(0,0);go(location.hash.slice(1)||'home');setInterval(()=>{if($('#home').classList.contains('on'))loadStatus().catch(()=>{});if($('#pixels').classList.contains('on'))loadPixels().catch(()=>{})},5000)}
 start();
 </script></body></html>
