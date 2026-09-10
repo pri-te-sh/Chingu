@@ -1,7 +1,7 @@
 # Continuous deployment: every push to main that touches the backend redeploys the brain on the Hetzner box.
 # Secrets (GitHub → Settings → Secrets and variables → Actions):
 #   DEPLOY_HOST      2.29.41.213
-#   DEPLOY_SSH_KEY   private half of the "pixel-ci-deploy" key (public half is in /home/pixel/.ssh/authorized_keys on the server)
+#   DEPLOY_SSH_KEY (or SSH_KEY)  private half of the "pixel-ci-deploy" key (public half is in /home/pixel/.ssh/authorized_keys on the server)
 name: deploy-brain
 on:
   push:
@@ -41,8 +41,8 @@ jobs:
     steps:
       - name: Deploy over SSH
         env:
-          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          HOST: ${{ secrets.DEPLOY_HOST }}
+          KEY: ${{ secrets.DEPLOY_SSH_KEY || secrets.SSH_KEY }}
+          HOST: ${{ secrets.DEPLOY_HOST || '2.29.41.213' }}
         run: |
           [ -n "$KEY" ] || { echo "::error::secret DEPLOY_SSH_KEY is empty or missing (expected the private half of the pixel-ci-deploy key)"; exit 1; }
           [ -n "$HOST" ] || { echo "::error::secret DEPLOY_HOST is empty or missing (expected the server IP)"; exit 1; }
@@ -53,7 +53,7 @@ jobs:
           ssh -i ~/.ssh/id_deploy pixel@"$HOST" '/opt/pixel/backend/deploy/up.sh'
       - name: Smoke test
         env:
-          HOST: ${{ secrets.DEPLOY_HOST }}
+          HOST: ${{ secrets.DEPLOY_HOST || '2.29.41.213' }}
         run: |
           for i in $(seq 1 20); do
             code=$(curl -s -o /dev/null -w '%{http_code}' -k --resolve pixel.priteshbhavsar.com:443:$HOST https://pixel.priteshbhavsar.com/health || true)
