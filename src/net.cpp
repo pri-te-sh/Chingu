@@ -123,6 +123,14 @@ static void onEvent(WStype_t type, uint8_t* payload, size_t len) {
       const char* t = d["type"] | "";
       if (!strcmp(t, "ready")) { ready_ = true; state_ = READY; pairingCode_[0] = 0; dbg::log("[net] brain ready"); ota::markHealthy(); sendStatus(); }
       else if (!strcmp(t, "ota")) { dbg::log("[net] update requested by the portal"); ota::requestInstall(); }
+      else if (!strcmp(t, "brain")) {                                   // move to another brain (cutover): host/port/tls, then reconnect
+        const char* host = d["host"] | "";
+        if (host[0]) {
+          strlcpy(prefs::brainHost, host, sizeof prefs::brainHost); prefs::brainTls = d["tls"] | false; prefs::brainPort = d["port"] | (prefs::brainTls ? 443 : 8765);
+          prefs::save(); dbg::log("[net] brain moved to %s:%u tls=%d - restarting", prefs::brainHost, prefs::brainPort, prefs::brainTls);
+          delay(300); ESP.restart();
+        }
+      }
       else if (!strcmp(t, "pairing")) {
         strlcpy(pairingCode_, d["code"] | "", sizeof pairingCode_); state_ = PAIRING;
         dbg::log("[net] waiting to be paired - code %s", pairingCode_);

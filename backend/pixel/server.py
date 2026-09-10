@@ -312,6 +312,8 @@ async def ws_endpoint(ws: WebSocket):
                     await send_json(ws, type="unpaired"); await ws.close(code=4004)
                 elif msg.get("type") == "ota":
                     await send_json(ws, type="ota", version=msg.get("version"))
+                elif msg.get("type") == "brain":
+                    await send_json(ws, type="brain", host=msg.get("host"), port=msg.get("port"), tls=msg.get("tls", True))
             await asyncio.sleep(1)
 
     inj = asyncio.create_task(injector())
@@ -661,6 +663,18 @@ async def api_pixel_delete(request: Request, pid: int):
     await bus.inbox_push(p["device_id"], {"type": "unpaired"})
     await repo.archive_pixel(pid)                      # history is kept; the device shows a pairing code again
     await repo.device_event(pid, "removed")
+    return {"ok": True}
+
+
+@app.post("/api/pixels/{pid}/brain")
+async def api_pixel_move_brain(request: Request, pid: int, body: dict):
+    """Cutover helper: tell a paired device to reconnect to another brain (host/port/tls). Its token stays valid there if the DB was migrated."""
+    h, _, _ = await scope(request)
+    p = await repo.pixel(pid)
+    if not p or p["household_id"] != h["id"]: raise HTTPException(404)
+    if not body.get("host"): raise HTTPException(400, "host required")
+    await bus.inbox_push(p["device_id"], {"type": "brain", "host": body["host"], "port": int(body.get("port", 443)), "tls": bool(body.get("tls", True))})
+    await repo.device_event(pid, "brain_moved", host=body["host"])
     return {"ok": True}
 
 
