@@ -28,6 +28,14 @@ async def synthesize(text: str) -> bytes:
     from . import tts
     return await asyncio.get_running_loop().run_in_executor(None, lambda: b"".join(tts.synthesize(text)))
 
+async def ready() -> bool:
+    """True when speech can actually be served (worker answers 2xx, or in-process models are importable)."""
+    if URL:
+        try: r = await _c().get(f"{URL}/health", timeout=3); return r.status_code == 200 and bool(r.json().get("ok"))
+        except Exception: return False
+    return True
+
+
 async def warm():
     if URL:
         try: await _c().get(f"{URL}/health")

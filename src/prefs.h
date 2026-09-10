@@ -14,6 +14,7 @@ extern char moods[160];          // "love=FF6AD5,annoyed=FF4A4A,..." ("-" = tint
 // provisioning
 extern char wifiSsid[33], wifiPass[65];
 extern char brainHost[96];
+extern char deviceKey[65];              // per-unit identity key (hex), never shown, never cleared
 extern uint16_t brainPort;
 extern bool brainTls;
 extern char token[64];           // per-device token issued when paired ("" = unpaired)

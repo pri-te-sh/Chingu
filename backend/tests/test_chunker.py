@@ -20,3 +20,7 @@ def test_short_clause_never_blocks_later_sentence_end():
 def test_flush_returns_remainder_and_resets():
     c = Chunker(); assert c.feed("hello there") == []
     assert c.flush() == ["hello there"] and c.flush() == []
+
+def test_hard_cap_on_unpunctuated_text():
+    out = feed_all("word " * 100 + ".")
+    assert all(len(c) <= 160 for c in out) and len(out) >= 3

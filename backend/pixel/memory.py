@@ -145,20 +145,26 @@ async def extract(cfg: dict):
         print(f"[memory] unparsable extraction: {raw[:200]!r}"); return
     src = recent[-1]["id"]
     n_new = n_upd = 0
+    own_facts = {f["id"] for f in fs}                        # ids the model was shown; anything else is ignored
+    def _id(v):
+        try: return int(v)
+        except (TypeError, ValueError): return None
     for item in data.get("facts", []) or []:
-        text, action, fid = (item.get("text") or "").strip(), item.get("action"), item.get("id")
-        if action == "confirm" and fid is not None: await repo.confirm_fact(int(fid))
+        text, action, fid = (item.get("text") or "").strip(), item.get("action"), _id(item.get("id"))
+        if fid is not None and fid not in own_facts: continue
+        if action == "confirm" and fid is not None: await repo.confirm_fact(fid, hid)
         elif action == "update" and fid is not None and text:
-            if await repo.update_fact(int(fid), text=text, type=item.get("type")): n_upd += 1
+            if await repo.update_fact(fid, hid, text=text, type=item.get("type")): n_upd += 1
         elif text and not any(text.lower() == f["text"].lower() for f in fs):
             await repo.add_fact(hid, text, item.get("type", "fact"), source_turn=src); n_new += 1
     open_fu = await repo.followups(hid)
     for fu in data.get("followups", []) or []:
         if fu.get("text") and not any(fu["text"].lower() == x["text"].lower() for x in open_fu):
             await repo.add_followup(hid, fu["text"], fu.get("due") if fu.get("due") not in (None, "null") else None)
+    own_fu = {x["id"] for x in open_fu}
     for fid in data.get("resolved_followups", []) or []:
-        try: await repo.resolve_followup(int(fid))
-        except Exception: pass
+        fid = _id(fid)
+        if fid is not None and fid in own_fu: await repo.resolve_followup(fid, hid)
     if data.get("today_summary"): await repo.set_summary(hid, today_key(tz), data["today_summary"])
     print(f"[memory] hid={hid} extracted in {time.time() - t0:.1f}s with {cfg['memory_model']}: +{n_new} facts, {n_upd} updated")
 

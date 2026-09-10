@@ -1,5 +1,6 @@
 # secrets - never commit
-include/secrets.h
+include/secrets.h*
+!include/secrets.h.example
 *.env
 
 # build / tool output

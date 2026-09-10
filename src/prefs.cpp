@@ -3,7 +3,7 @@
 #include <WiFi.h>
 
 // Dev convenience: if include/secrets.h exists it seeds NVS once (first boot only); users never need it.
-#if __has_include("secrets.h")
+#if 0 /* secrets.h seeding removed: provisioning is the only way credentials enter a board */
 #include "secrets.h"
 #define HAVE_SECRETS 1
 #else
@@ -30,7 +30,10 @@ static char devId[20] = "";
 
 static void getStr(const char* key, char* dst, size_t n) { String v = p.getString(key, dst); strlcpy(dst, v.c_str(), n); }
 
+void loadIdentity();
+
 void load() {
+  loadIdentity();
   p.begin("pixel", true);
   getStr("name", name, sizeof name);
   eyeRGB = p.getUInt("eye", eyeRGB);
@@ -51,14 +54,6 @@ void load() {
     }
     p.begin("pixel", false); p.putString("host", brainHost); p.putUShort("port", brainPort); p.putBool("tls", brainTls); p.putUChar("schema", 2); p.end();
   }
-#if HAVE_SECRETS
-  if (!seeded && !wifiSsid[0]) {           // one-time seed from the developer's secrets.h
-    strlcpy(wifiSsid, WIFI_SSID, sizeof wifiSsid); strlcpy(wifiPass, WIFI_PASSWORD, sizeof wifiPass);
-    strlcpy(brainHost, BACKEND_HOST, sizeof brainHost); brainPort = BACKEND_PORT; brainTls = BACKEND_TLS;
-    p.begin("pixel", false); p.putBool("seeded", true); p.end();
-    save();
-  }
-#endif
 }
 
 void save() {
@@ -68,6 +63,21 @@ void save() {
   p.putString("host", brainHost); p.putUShort("port", brainPort); p.putBool("tls", brainTls);
   p.putString("token", token);
   p.end();
+}
+
+char deviceKey[65] = "";
+
+void loadIdentity() {
+  // The identity key binds this device id to this physical unit. It is generated once from hardware randomness and lives in its
+  // own NVS namespace so a factory reset (which clears "pixel") never touches it. It is only ever sent to the brain over TLS.
+  Preferences id; id.begin("pixelid", false);
+  String k = id.getString("key", "");
+  if (k.length() != 64) {
+    static const char* hexd = "0123456789abcdef";
+    for (int i = 0; i < 32; i++) { uint32_t r = esp_random(); deviceKey[i * 2] = hexd[(r >> 4) & 15]; deviceKey[i * 2 + 1] = hexd[r & 15]; }
+    deviceKey[64] = 0; id.putString("key", deviceKey);
+  } else strlcpy(deviceKey, k.c_str(), sizeof deviceKey);
+  id.end();
 }
 
 void factoryReset() {

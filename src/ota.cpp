@@ -8,6 +8,7 @@
 #include <Preferences.h>
 #include <ArduinoJson.h>
 #include "mbedtls/sha256.h"
+#include "certs.h"
 
 #ifndef PIXEL_FW_VERSION
 #define PIXEL_FW_VERSION "0.0.0"
@@ -69,20 +70,21 @@ bool check(Manifest& out) {
   if (!net::wifiUp()) return false;
   state_ = "checking";
   HTTPClient http; WiFiClientSecure sec; WiFiClient plain;
-  sec.setInsecure();
+  sec.setCACert(PIXEL_CA_BUNDLE);
   http.setTimeout(8000);
   bool ok = net::tls() ? http.begin(sec, manifestUrl()) : http.begin(plain, manifestUrl());
   int code = ok ? http.GET() : -1;
+  lastCheck_ = millis();                                              // any attempt counts: failures retry on the daily schedule, not every loop
   if (code != 200) { http.end(); state_ = "idle"; dbg::log("[ota] manifest http %d", code); return false; }
   JsonDocument d;
   if (deserializeJson(d, http.getStream())) { http.end(); state_ = "idle"; return false; }
   http.end();
   out = Manifest();
-  if (!d["version"].is<const char*>()) { state_ = "idle"; available_ = false; return false; }   // no release published
+  if (!d["version"].is<const char*>()) { state_ = "idle"; available_ = false; latest_ = Manifest(); return false; }   // no release published
   strlcpy(out.version, d["version"] | "", sizeof out.version); strlcpy(out.url, d["url"] | "", sizeof out.url);
   strlcpy(out.sha256, d["sha256"] | "", sizeof out.sha256); strlcpy(out.notes, d["notes"] | "", sizeof out.notes);
   out.size = d["size"] | 0; out.valid = out.url[0] && strlen(out.sha256) == 64;
-  latest_ = out; lastCheck_ = millis();
+  latest_ = out;
   available_ = out.valid && cmpVersion(out.version, PIXEL_FW_VERSION) > 0;
   state_ = "idle";
   dbg::log("[ota] latest %s (have %s) %s", out.version, PIXEL_FW_VERSION, available_ ? "- update available" : "- up to date");
@@ -96,7 +98,7 @@ bool update(const Manifest& m) {
   dbg::log("[ota] downloading %s (%u bytes)", m.url, m.size);
   state_ = "downloading"; progress_ = 0; report("connecting");
   HTTPClient http; WiFiClientSecure sec; WiFiClient plain;
-  sec.setInsecure(); http.setTimeout(15000);
+  sec.setCACert(PIXEL_CA_BUNDLE); http.setTimeout(15000);
   bool ok = String(m.url).startsWith("https") ? http.begin(sec, m.url) : http.begin(plain, m.url);
   int code = ok ? http.GET() : -1;
   if (code != 200) { http.end(); state_ = "failed"; dbg::log("[ota] download http %d", code); return false; }
@@ -105,10 +107,14 @@ bool update(const Manifest& m) {
   if (!Update.begin(len)) { http.end(); state_ = "failed"; dbg::log("[ota] not enough space: %s", Update.errorString()); return false; }
   mbedtls_sha256_context sha; mbedtls_sha256_init(&sha); mbedtls_sha256_starts(&sha, 0);
   WiFiClient* stream = http.getStreamPtr();
-  uint8_t buf[2048]; int got = 0; uint32_t lastLog = 0;
+  uint8_t buf[2048]; int got = 0; uint32_t lastLog = 0, lastData = millis();
   while (http.connected() && got < len) {
     size_t avail = stream->available();
-    if (!avail) { delay(2); continue; }
+    if (!avail) {
+      if (millis() - lastData > 20000) { dbg::log("[ota] download stalled"); Update.abort(); http.end(); state_ = "failed"; return false; }
+      delay(2); continue;
+    }
+    lastData = millis();
     int n = stream->readBytes(buf, min(avail, sizeof buf));
     if (n <= 0) break;
     if (Update.write(buf, n) != (size_t)n) { dbg::log("[ota] write failed: %s", Update.errorString()); Update.abort(); http.end(); state_ = "failed"; return false; }

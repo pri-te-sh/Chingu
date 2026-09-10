@@ -3,6 +3,8 @@
 #include "log.h"
 #include "prefs.h"
 #include "ota.h"
+#include "certs.h"
+#include <time.h>
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DNSServer.h>
@@ -68,10 +70,13 @@ static void handleSave() {
   strlcpy(prefs::wifiPass, http_->arg("pass").c_str(), sizeof prefs::wifiPass);
   String host = http_->arg("host"); host.trim();
   if (host.length()) {                      // accept "host", "host:port", "https://host"
-    prefs::brainTls = host.startsWith("https://"); host.replace("https://", ""); host.replace("http://", "");
+    bool explicitScheme = host.startsWith("https://") || host.startsWith("http://");
+    if (explicitScheme) prefs::brainTls = host.startsWith("https://");           // a bare host keeps the current/default TLS setting
+    else prefs::brainTls = http_->arg("tls") == "1";
+    host.replace("https://", ""); host.replace("http://", "");
     int c = host.indexOf(':');
     if (c > 0) { prefs::brainPort = host.substring(c + 1).toInt(); host = host.substring(0, c); }
-    else prefs::brainPort = prefs::brainTls ? 443 : http_->arg("port").toInt();
+    else { int prt = http_->arg("port").toInt(); prefs::brainPort = prt > 0 ? prt : (prefs::brainTls ? 443 : 8765); }
     strlcpy(prefs::brainHost, host.c_str(), sizeof prefs::brainHost);
   }
   prefs::save();
@@ -106,6 +111,7 @@ static void onEvent(WStype_t type, uint8_t* payload, size_t len) {
       JsonDocument d;
       d["type"] = "hello"; d["device"] = prefs::deviceId(); d["device_type"] = "lite"; d["fw"] = ota::version(); d["build"] = __DATE__ " " __TIME__;
       if (prefs::hasToken()) d["token"] = prefs::token;
+      d["device_key"] = prefs::deviceKey;
       JsonObject caps = d["capabilities"].to<JsonObject>();
       caps["speaker"] = false; caps["mic"] = false; caps["camera"] = false; caps["touch"] = true; caps["display"] = "320x240";
       String s; serializeJson(d, s); ws.sendTXT(s);
@@ -202,7 +208,7 @@ static void onEvent(WStype_t type, uint8_t* payload, size_t len) {
 }
 
 static void wsConnect() {
-  if (prefs::brainTls) ws.beginSSL(prefs::brainHost, prefs::brainPort, "/ws");
+  if (prefs::brainTls) ws.beginSslWithCA(prefs::brainHost, prefs::brainPort, "/ws", PIXEL_CA_BUNDLE);   // verified: only the real brain
   else ws.begin(prefs::brainHost, prefs::brainPort, "/ws");
   wsBegun_ = true;
 }
@@ -239,13 +245,21 @@ void loop() {
   bool up = wifiUp();
   if (up != wasUp) {
     wasUp = up;
-    if (up) { dbg::log("[net] wifi up, ip %s rssi %d", WiFi.localIP().toString().c_str(), WiFi.RSSI()); setLedBlue(false); state_ = CONNECTING_BRAIN; if (!wsBegun_) wsConnect(); }
+    if (up) {
+      dbg::log("[net] wifi up, ip %s rssi %d", WiFi.localIP().toString().c_str(), WiFi.RSSI()); setLedBlue(false); state_ = CONNECTING_BRAIN;
+      configTzTime("UTC0", "pool.ntp.org", "time.google.com", "time.cloudflare.com");   // TLS certificate checks need a real clock
+      if (!prefs::brainTls && !wsBegun_) wsConnect();
+    }
     else { dbg::log("[net] wifi down"); state_ = CONNECTING_WIFI; wifiStart = millis(); }
   }
   if (!up) {
     if (millis() - lastBlink > 600) { lastBlink = millis(); setLedBlue((millis() / 600) & 1); }
     if (millis() - wifiStart > 90000) { dbg::log("[net] wifi failed for 90 s - opening setup"); startProvisioning(); }   // wrong password etc.
     return;
+  }
+  if (up && prefs::brainTls && !wsBegun_) {                       // wait (max ~20 s) for SNTP before the first TLS handshake
+    static uint32_t ntpStart = 0; if (!ntpStart) ntpStart = millis();
+    if (time(nullptr) > 1700000000 || millis() - ntpStart > 20000) { dbg::log("[net] clock %s, connecting over TLS", time(nullptr) > 1700000000 ? "synced" : "NOT synced"); wsConnect(); }
   }
   if (holdOffUntil_ && millis() > holdOffUntil_) { holdOffUntil_ = 0; wsConnect(); dbg::log("[net] reconnecting to brain"); }
   if (!holdOffUntil_) ws.loop();

@@ -52,6 +52,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    ports: ["${PIXEL_BIND:-0.0.0.0}:6379:6379"]    # host access for tests; localhost-only in prod
     command: redis-server --save 60 1 --loglevel warning
     volumes: ["redisdata:/data"]
     restart: unless-stopped

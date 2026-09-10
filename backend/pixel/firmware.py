@@ -90,14 +90,14 @@ async def store(data: bytes, device_type: str, channel: str, version: str, notes
 
 @router.post("/api/firmware/upload")
 async def upload(request: Request, file: UploadFile = File(...), device_type: str = Form("lite"), channel: str = Form("stable"), version: str = Form(...), notes: str = Form("")):
-    await auth.require_user(request)
+    await auth.require_admin(request)
     r = await store(await file.read(), device_type, channel, version.strip(), notes)
     return public(r, request)
 
 
 @router.delete("/api/firmware/releases/{rid}")
 async def delete_release(request: Request, rid: int):
-    await auth.require_user(request)
+    await auth.require_admin(request)
     r = await repo.fetch_one(sa.select(m.firmware_releases).where(m.firmware_releases.c.id == rid))
     if not r: raise HTTPException(404)
     p = FW_DIR / r["device_type"] / r["channel"] / f"{r['version']}.bin"

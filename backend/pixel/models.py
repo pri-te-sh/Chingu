@@ -12,6 +12,7 @@ users = sa.Table("users", metadata,
     sa.Column("provider", sa.Text, nullable=False),            # dev | google
     sa.Column("provider_id", sa.Text, nullable=False),
     sa.Column("email", sa.Text), sa.Column("name", sa.Text), sa.Column("avatar", sa.Text),
+    sa.Column("is_admin", sa.Boolean, nullable=False, server_default=sa.false()),   # platform admin: firmware releases, drain
     _ts("created_at"),
     sa.UniqueConstraint("provider", "provider_id"))
 
@@ -37,6 +38,7 @@ pixels = sa.Table("pixels", metadata,
     sa.Column("device_type", sa.Text, nullable=False, server_default="lite"),  # lite | 3s | sim
     sa.Column("name", sa.Text, nullable=False, server_default="Pixel"),
     sa.Column("pairing_code", sa.Text), sa.Column("token_hash", sa.Text),
+    sa.Column("device_key_hash", sa.Text),                       # hash of the device identity key (survives factory reset; binds device_id to the unit)
     sa.Column("capabilities", JSONB, nullable=False, server_default="{}"),
     sa.Column("fw_version", sa.Text), sa.Column("fw_channel", sa.Text, server_default="stable"), sa.Column("reset_reason", sa.Text),
     _ts("created_at"), sa.Column("last_seen_at", sa.DateTime(timezone=True)), sa.Column("paired_at", sa.DateTime(timezone=True)),

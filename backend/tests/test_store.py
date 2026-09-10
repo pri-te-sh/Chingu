@@ -9,9 +9,9 @@ async def test_facts_are_household_scoped(household, pixel):
     try:
         assert [x["text"] for x in await repo.facts(household)] == ["Owner has a dog named Bruno"]
         assert await repo.facts(oid) == []
-        upd = await repo.update_fact(f["id"], text="Owner has a dog named Bruno who steals socks")
+        upd = await repo.update_fact(f["id"], household, text="Owner has a dog named Bruno who steals socks")
         assert "socks" in upd["text"]
-        await repo.delete_fact(f["id"])
+        await repo.delete_fact(f["id"], household)
         assert await repo.facts(household) == []
     finally:
         await repo.execute(__import__("sqlalchemy").delete(repo.m.households).where(repo.m.households.c.id == oid))
@@ -35,4 +35,4 @@ async def test_turns_and_summaries(household, pixel):
     assert (await repo.last_turn_ts(household)) is not None
     await repo.set_summary(household, "2026-09-09", "a day"); await repo.set_summary(household, "2026-09-09", "a better day")
     assert (await repo.summaries(household))["2026-09-09"] == "a better day"
-    await repo.delete_turn(t["id"]); assert (await repo.count_turns(household)) == 0
+    await repo.delete_turn(t["id"], household); assert (await repo.count_turns(household)) == 0

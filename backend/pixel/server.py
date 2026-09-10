@@ -35,6 +35,7 @@ FLUSH = "\x00FLUSH"     # in-band marker: "the model's pre-tool sentence is comp
 PORTAL_DIR = Path(__file__).resolve().parent / "portal"
 STT_JUNK = {"thank you.", "thank you", "thanks.", "you", "you.", "bye.", "bye", ".", "thank you for watching.", "thanks for watching.", "hmm.", "uh.", "okay.", "so."}
 MIN_UTTERANCE_S, POST_SPEECH_GUARD_S = 0.4, 0.4
+MAX_PENDING_DEVICES = 50               # unclaimed registrations allowed at once (F11); stale ones expire after 7 days
 
 sessions: dict[str, "Session"] = {}       # device_id -> live session in THIS process
 started_at = time.time()
@@ -55,15 +56,37 @@ class Session:
 @app.on_event("startup")
 async def _startup():
     await inference.warm()
+    asyncio.create_task(_retention_loop())
     log.info("brain.started", inference="worker" if inference.URL else "in-process")
+
+
+async def _retention_loop():
+    """Daily: device events 90 d, device logs 14 d, expired sessions, never-claimed registrations 7 d (D13 retention)."""
+    while True:
+        try: log.info("retention", **(await repo.retention()))
+        except Exception as e: log.warning("retention.failed", error=repr(e))
+        await asyncio.sleep(24 * 3600)
 
 
 @app.get("/health")
 async def health():
-    h = await repo.default_household()
-    present = await bus.presence_all()
-    return {"ok": True, "store": "postgres", "inference": "worker" if inference.URL else "in-process",
-            "devices": list(present), "household": h["name"], "auth_required": True, "providers": auth.providers()}
+    """Public liveness only: no identities. Readiness (DB, Redis, worker) is reported as ok=false with the failing part named."""
+    parts = {}
+    try: await repo.default_household(); parts["db"] = True
+    except Exception: parts["db"] = False
+    try: await bus.presence_all([]); parts["redis"] = True
+    except Exception: parts["redis"] = False
+    parts["worker"] = await inference.ready()
+    return {"ok": all(parts.values()), "parts": parts, "providers": auth.providers()}
+
+
+@app.get("/api/health")
+async def api_health(request: Request):
+    """Authenticated diagnostics for the household: which of *its* devices are present."""
+    h, _, _ = await scope(request)
+    mine = [x["device_id"] for x in await repo.pixels_in_household(h["id"])]
+    present = await bus.presence_all(mine)
+    return {"ok": True, "devices": [d for d in mine if d in present], "household": h["name"], "inference": "worker" if inference.URL else "in-process"}
 
 
 @app.get("/metrics")
@@ -87,7 +110,7 @@ async def respond(ws: WebSocket | None, sess: "Session | None", cfg: dict, user_
     if ws: await send_json(ws, type="expression", name="thinking", intensity=0.7)
 
     hist = []
-    for t in await repo.turns(pid=pid, limit=cfg["history_turns"]):
+    for t in await repo.turns(hid=hid, pid=pid, limit=cfg["history_turns"]):
         if t.get("user_text"): hist.append({"role": "user", "content": t["user_text"]})
         if t.get("reply"): hist.append({"role": "assistant", "content": t["reply"]})
     messages = hist + [{"role": "user", "content": user_text}]
@@ -114,7 +137,7 @@ async def respond(ws: WebSocket | None, sess: "Session | None", cfg: dict, user_
             speech_started = True; t_audio = time.time() - t0
             obs.STAGE.labels("first_audio").observe(t_audio)
             if sess: sess.speaking_until = time.time() + 30
-        pause = PAUSE_SENTENCE_MS if last_end in ".!?" else PAUSE_CLAUSE_MS if last_end in ",;:" else 0
+        pause = 0 if not last_end else PAUSE_SENTENCE_MS if last_end in ".!?" else PAUSE_CLAUSE_MS if last_end in ",;:" else 0
         if pause: await ws.send_bytes(b"\x00" * (C.SAMPLE_RATE * 2 * pause // 1000))
         await send_json(ws, type="chunk", id=cid, state="audio")
         audio_bytes += len(pcm)
@@ -243,26 +266,48 @@ async def ws_endpoint(ws: WebSocket):
     try: hello = json.loads(await asyncio.wait_for(ws.receive_text(), timeout=10))
     except Exception: await ws.close(code=4000); return
     device_id = re.sub(r"[^a-z0-9_-]", "", (hello.get("device") or "pixel").lower()) or "pixel"
-    device_type = hello.get("device_type") or ("sim" if device_id.startswith("sim") else "lite")
-    pixel = await repo.get_or_create_pixel(device_id, device_type, capabilities=hello.get("capabilities") or {})
-    if hello.get("fw"): await repo.update_pixel(pixel["id"], fw_version=hello["fw"])
+    requested_type = hello.get("device_type") if hello.get("device_type") in ("lite", "3s", "sim") else ("sim" if device_id.startswith("sim") else "lite")
+    pixel = await repo.pixel_by_device(device_id)
+    device_type = pixel["device_type"] if pixel else requested_type      # an existing row's type is never changed by a hello
+    caps = hello.get("capabilities") if isinstance(hello.get("capabilities"), dict) else {}
 
-    # ---- pairing ----
-    # sim (browser): auto-pair to the signed-in user's household via the session cookie
-    if device_type == "sim" and not pixel.get("household_id"):
-        user = await auth.current_user(ws)          # WebSocket carries the same cookies
+    if device_type == "sim":
+        # Browser simulator: the session cookie IS the credential, on every connection. It may only use its own household's sims.
+        user = await auth.current_user(ws)
         hs = await auth.households_for(user["id"]) if user else []
-        if hs:
-            await repo.pair(pixel["id"], hs[0]["id"], name="Simulator"); pixel = await repo.pixel(pixel["id"])
-    paired = bool(pixel.get("household_id"))
-    if paired and not repo.token_valid(pixel, hello.get("token")):
-        if pixel.get("token_hash") is None and device_type != "sim":
-            # grandfathered device (paired before tokens existed): issue its token now
-            tok = await repo.issue_token(pixel["id"])
-            await send_json(ws, type="paired", token=tok, name=pixel["name"])
-            log.info("device.grandfathered", device=device_id)
-        elif device_type != "sim":
-            paired = False                             # wrong/stale token: fall back to pairing
+        if not hs: await ws.close(code=4001, reason="sign in required"); return
+        my_hids = {h["id"] for h in hs}
+        if pixel and pixel.get("household_id") not in my_hids and pixel.get("household_id") is not None:
+            await ws.close(code=4003, reason="simulator belongs to another household"); return
+        if not pixel: pixel = await repo.get_or_create_pixel(device_id, "sim", household_id=hs[0]["id"], capabilities=caps)
+        elif not pixel.get("household_id"): await repo.pair(pixel["id"], hs[0]["id"], name="Simulator"); pixel = await repo.pixel(pixel["id"])
+        paired = True
+    else:
+        # Physical device: identity key binds device_id to the unit (survives factory reset); token binds it to a household.
+        key = hello.get("device_key") if isinstance(hello.get("device_key"), str) and 16 <= len(hello.get("device_key")) <= 128 else None
+        if not pixel:
+            if await repo.count_pending() >= MAX_PENDING_DEVICES: await ws.close(code=4029, reason="too many unclaimed devices"); return
+            pixel = await repo.get_or_create_pixel(device_id, requested_type, capabilities=caps)
+            if key: await repo.set_pixel_key(pixel["id"], key); pixel = await repo.pixel(pixel["id"])
+            log.info("device.registered", device=device_id, keyed=bool(key))
+        elif pixel.get("device_key_hash"):
+            if not repo.key_valid(pixel, key):
+                log.warning("device.identity_mismatch", device=device_id); await ws.close(code=4001, reason="device identity mismatch"); return
+        elif key:
+            await repo.set_pixel_key(pixel["id"], key); pixel = await repo.pixel(pixel["id"])   # first keyed connection of a legacy row
+            log.info("device.keyed", device=device_id)
+        paired = bool(pixel.get("household_id"))
+        if paired and not repo.token_valid(pixel, hello.get("token")):
+            if pixel.get("token_hash") is None:
+                tok = await repo.issue_token(pixel["id"])                # grandfathered device (paired before tokens existed)
+                await send_json(ws, type="paired", token=tok, name=pixel["name"]); log.info("device.grandfathered", device=device_id)
+            elif pixel.get("device_key_hash"):
+                # The physical unit (identity proven) lost its token: factory reset or on-device un-pair. Release it so it can be claimed again.
+                await repo.unpair(pixel["id"]); await repo.device_event(pixel["id"], "released", reason="device lost its token")
+                pixel = await repo.pixel(pixel["id"]); paired = False; log.info("device.released", device=device_id)
+            else:
+                log.warning("device.bad_token", device=device_id); await ws.close(code=4001, reason="unauthorized"); return
+        await repo.touch_pixel(pixel["id"], capabilities=caps, fw_version=hello.get("fw"))
     if not paired:
         # stay connected, show the code, wait for the owner to claim us in the portal
         code = pixel.get("pairing_code") or repo.new_pairing_code()
@@ -386,7 +431,14 @@ async def ws_endpoint(ws: WebSocket):
                 data = json.loads(msg["text"]); t = data.get("type")
                 if t == "ping": await send_json(ws, type="pong", t=time.time())
                 elif t == "status":
-                    sess.status = {k: data.get(k) for k in ("rssi", "heap", "uptime_s", "ip", "fw", "build", "ota", "expr", "name", "battery_v", "reset_reason", "fps")}
+                    def _num(v, lo, hi):
+                        try: f = float(v); return f if lo <= f <= hi else None
+                        except (TypeError, ValueError): return None
+                    def _str(v, n=48): return str(v)[:n] if isinstance(v, (str, int, float)) else None
+                    sess.status = {"rssi": _num(data.get("rssi"), -120, 0), "heap": _num(data.get("heap"), 0, 1e9), "uptime_s": _num(data.get("uptime_s"), 0, 1e10),
+                                   "ip": _str(data.get("ip"), 45), "fw": _str(data.get("fw"), 24), "build": _str(data.get("build"), 40), "ota": _str(data.get("ota"), 16),
+                                   "expr": _str(data.get("expr"), 16), "name": _str(data.get("name"), 40), "battery_v": _num(data.get("battery_v"), 0, 10),
+                                   "reset_reason": _str(data.get("reset_reason"), 8), "fps": _num(data.get("fps"), 0, 1000)}
                     sess.status_at = time.time()
                     if not sess.is_sim:
                         await bus.presence_set(device_id, status=sess.status, connected_at=sess.connected_at, busy=sess.busy)
@@ -401,6 +453,7 @@ async def ws_endpoint(ws: WebSocket):
                 elif t == "playback_end": sess.speaking_until = time.time() + POST_SPEECH_GUARD_S; vad.reset()
                 elif t == "interrupt":
                     if sess.turn_task and not sess.turn_task.done(): sess.turn_task.cancel()
+                    else: await send_json(ws, type="speech_cancel")       # synthesis already finished: still flush queued playback
                     sess.speaking_until = 0.0; vad.reset()
                 elif t == "end":
                     utt = vad.flush()
@@ -415,6 +468,10 @@ async def ws_endpoint(ws: WebSocket):
         except Exception: pass
     finally:
         inj.cancel(); obs.WS_SESSIONS.dec()
+        if sess.turn_task and not sess.turn_task.done():
+            sess.turn_task.cancel()
+            try: await sess.turn_task
+            except (asyncio.CancelledError, Exception): pass
         if not sess.is_sim:
             await repo.device_event(sess.pid, "disconnected", duration_s=int(time.time() - sess.connected_at), rssi=sess.status.get("rssi"))
         if sessions.get(device_id) is sess:
@@ -450,7 +507,7 @@ async def api_me(request: Request):
     if not u: return {"user": None, "providers": auth.providers()}
     hs = await auth.households_for(u["id"])
     mem = await auth.members(hs[0]["id"]) if hs else []
-    return {"user": {k: u[k] for k in ("id", "email", "name", "avatar", "provider")}, "households": hs, "members": mem, "providers": auth.providers()}
+    return {"user": {k: u.get(k) for k in ("id", "email", "name", "avatar", "provider", "is_admin")}, "households": hs, "members": mem, "providers": auth.providers()}
 
 
 @app.put("/api/me")
@@ -552,7 +609,9 @@ async def api_config_defaults(request: Request):
 @app.put("/api/config")
 async def api_config_put(request: Request, patch: dict, pixel: int | None = None):
     h, p, _ = await scope(request, pixel)
-    cfg = await settings.update(h["id"], p["id"], patch)
+    if not isinstance(patch, dict): raise HTTPException(400, "object expected")
+    try: cfg = await settings.update(h["id"], p["id"], patch)
+    except settings.InvalidSetting as e: raise HTTPException(400, str(e))
     for x in await repo.pixels_in_household(h["id"]):
         await bus.inbox_push(x["device_id"], {"type": "config"})
     return cfg
@@ -584,8 +643,8 @@ async def api_turns(request: Request, day: str | None = None, limit: int = 200, 
 
 @app.delete("/api/turns/{turn_id}")
 async def api_turn_delete(request: Request, turn_id: int):
-    await auth.require_user(request)
-    await repo.delete_turn(turn_id); return {"ok": True}
+    h, _, _ = await scope(request)
+    await repo.delete_turn(turn_id, h["id"]); return {"ok": True}
 
 @app.get("/api/facts")
 async def api_facts(request: Request, archived: bool = False, pixel: int | None = None):
@@ -598,15 +657,15 @@ async def api_fact_add(request: Request, body: dict, pixel: int | None = None):
 
 @app.put("/api/facts/{fid}")
 async def api_fact_put(request: Request, fid: int, body: dict):
-    await auth.require_user(request)
-    f = await repo.update_fact(fid, **{k: body.get(k) for k in ("text", "type", "pinned", "archived")})
+    h, _, _ = await scope(request)
+    f = await repo.update_fact(fid, h["id"], **{k: body.get(k) for k in ("text", "type", "pinned", "archived")})
     if not f: raise HTTPException(404)
     return f
 
 @app.delete("/api/facts/{fid}")
 async def api_fact_delete(request: Request, fid: int):
-    await auth.require_user(request)
-    await repo.delete_fact(fid); return {"ok": True}
+    h, _, _ = await scope(request)
+    await repo.delete_fact(fid, h["id"]); return {"ok": True}
 
 @app.post("/api/facts/forget_all")
 async def api_forget_all(request: Request, pixel: int | None = None):
@@ -618,13 +677,13 @@ async def api_followups(request: Request, pixel: int | None = None):
 
 @app.put("/api/followups/{fid}")
 async def api_followup_put(request: Request, fid: int, body: dict):
-    await auth.require_user(request)
-    await repo.resolve_followup(fid, bool(body.get("done", True))); return {"ok": True}
+    h, _, _ = await scope(request)
+    await repo.resolve_followup(fid, h["id"], bool(body.get("done", True))); return {"ok": True}
 
 @app.delete("/api/followups/{fid}")
 async def api_followup_delete(request: Request, fid: int):
-    await auth.require_user(request)
-    await repo.delete_followup(fid); return {"ok": True}
+    h, _, _ = await scope(request)
+    await repo.delete_followup(fid, h["id"]); return {"ok": True}
 
 @app.get("/api/summaries")
 async def api_summaries(request: Request, pixel: int | None = None):
@@ -663,12 +722,10 @@ async def api_pixels_claim(request: Request, body: dict):
     h, _, _ = await scope(request)
     code = (body.get("code") or "").strip().upper()
     p = await repo.pixel_by_code(code) if len(code) == 6 else None
-    if not p: raise HTTPException(404, "no device is showing that code")
-    # A device showing a pairing code has no valid token (factory reset, portal un-pair, or brand new). Whoever can read the
-    # code off its screen holds the device, so the claim wins even if the row still points at a previous household.
-    rehomed = bool(p.get("household_id")) and p["household_id"] != h["id"]
+    if not p: raise HTTPException(404, "no unpaired device is showing that code")
+    # Only an UNPAIRED device is claimable (pixel_by_code filters on that). A paired device must be released first:
+    # portal UNPAIR by its owner, or factory reset / un-pair on the device itself (identity-key verified).
     tok = await repo.pair(p["id"], h["id"], name=body.get("name") or p.get("name") or ("Pixel-3S" if p["device_type"] == "3s" else "Pixel"))
-    if rehomed: await repo.device_event(p["id"], "rehomed", from_household=p["household_id"], to_household=h["id"])
     await bus.inbox_push(p["device_id"], {"type": "paired", "token": tok, "name": body.get("name")})
     await repo.device_event(p["id"], "paired", household=h["id"])
     log.info("device.paired", device=p["device_id"], household=h["id"])
@@ -723,7 +780,7 @@ async def api_pixel_move_brain(request: Request, pid: int, body: dict):
 
 @app.post("/api/admin/drain")
 async def api_drain(request: Request):
-    await auth.require_user(request)
+    await auth.require_admin(request)
     n = 0
     for d in await bus.presence_all():
         await bus.inbox_push(d, {"type": "redeploy", "wait_s": 60}); n += 1
@@ -735,7 +792,11 @@ async def api_device_events(request: Request, limit: int = 60, pixel: int | None
 
 @app.post("/api/device/say")
 async def api_device_say(request: Request, body: dict, pixel: int | None = None):
-    present = await bus.presence_all()
-    device = body.get("device") or next(iter(present), None)
-    if not device or device not in present: raise HTTPException(409, "no device connected")
+    h, p, _ = await scope(request, pixel)
+    mine = {x["device_id"] for x in await repo.pixels_in_household(h["id"])}
+    device = body.get("device") or p["device_id"]
+    if device not in mine: raise HTTPException(404, "no such device in your household")
+    present = await bus.presence_all([device])
+    if device not in present: raise HTTPException(409, "device is offline")
+    if not isinstance(body.get("text"), str) or not body["text"].strip(): raise HTTPException(400, "text required")
     await bus.inbox_push(device, {"type": "say", "text": body["text"]}); return {"ok": True, "device": device}

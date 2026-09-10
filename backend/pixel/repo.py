@@ -28,6 +28,10 @@ async def execute(q, commit=True):
     async with engine().begin() as c:
         return await c.execute(q)
 
+async def fetch_val(q):
+    async with engine().connect() as c:
+        return (await c.execute(q)).scalar()
+
 # ---------------- households ----------------
 DEFAULT_HOUSEHOLD_NAME = "Home"
 
@@ -67,15 +71,13 @@ def new_token() -> str: return secrets.token_hex(24)
 
 
 async def get_or_create_pixel(device_id: str, device_type: str = "lite", household_id: int | None = None, capabilities: dict | None = None) -> dict:
-    """Register/refresh a device. household_id=None registers it UNPAIRED (shows a pairing code until claimed)."""
+    """Register a device. household_id=None registers it UNPAIRED (shows a pairing code until claimed).
+    An existing row is NOT changed by hello metadata (type/capabilities) - that is only applied via touch_pixel after authentication."""
     p = await pixel_by_device(device_id)
     now = dt.datetime.now(dt.timezone.utc)
     if p:
         vals = {"last_seen_at": now}
-        if p.get("archived"): vals.update(archived=False, household_id=None, pairing_code=new_pairing_code())
-        if capabilities: vals["capabilities"] = capabilities
-        if device_type and device_type != p["device_type"]: vals["device_type"] = device_type
-        if not p.get("pairing_code"): vals["pairing_code"] = new_pairing_code()
+        if p.get("archived"): vals.update(archived=False, household_id=None, token_hash=None, pairing_code=new_pairing_code())
         await execute(sa.update(m.pixels).where(m.pixels.c.id == p["id"]).values(**vals))
         return await pixel(p["id"])
     await execute(sa.insert(m.pixels).values(household_id=household_id, device_id=device_id, device_type=device_type,
@@ -86,8 +88,37 @@ async def get_or_create_pixel(device_id: str, device_type: str = "lite", househo
     return p
 
 
+async def touch_pixel(pid: int, capabilities: dict | None = None, fw_version: str | None = None):
+    """Post-authentication refresh of what the device reports about itself."""
+    vals = {}
+    if capabilities: vals["capabilities"] = capabilities
+    if fw_version: vals["fw_version"] = str(fw_version)[:40]
+    if vals: await execute(sa.update(m.pixels).where(m.pixels.c.id == pid).values(**vals))
+
+
+def key_valid(p: dict, key: str | None) -> bool:
+    return bool(key) and bool(p.get("device_key_hash")) and secrets.compare_digest(p["device_key_hash"], hash_token(key))
+
+
+async def set_pixel_key(pid: int, key: str):
+    await execute(sa.update(m.pixels).where(m.pixels.c.id == pid).values(device_key_hash=hash_token(key)))
+
+
+async def count_pending() -> int:
+    return await fetch_val(sa.select(sa.func.count()).select_from(m.pixels).where(m.pixels.c.household_id.is_(None)))
+
+
+async def expire_pending(days: int = 7) -> int:
+    """Drop never-claimed registrations (and their empty personas) older than `days`."""
+    cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)
+    ids = [r["id"] for r in await fetch_all(sa.select(m.pixels.c.id).where(m.pixels.c.household_id.is_(None), m.pixels.c.paired_at.is_(None), m.pixels.c.last_seen_at < cutoff))]
+    if ids: await execute(sa.delete(m.pixels).where(m.pixels.c.id.in_(ids)))
+    return len(ids)
+
+
 async def pixel_by_code(code: str) -> dict | None:
-    return await fetch_one(sa.select(m.pixels).where(m.pixels.c.pairing_code == code.strip().upper()))
+    """Only UNPAIRED devices are claimable by code."""
+    return await fetch_one(sa.select(m.pixels).where(m.pixels.c.pairing_code == code.strip().upper(), m.pixels.c.household_id.is_(None)))
 
 
 async def issue_token(pid: int) -> str:
@@ -98,9 +129,12 @@ async def issue_token(pid: int) -> str:
 
 
 async def pair(pid: int, household_id: int, name: str | None = None) -> str:
+    prev = await pixel(pid)
     vals = {"household_id": household_id, "paired_at": dt.datetime.now(dt.timezone.utc), "pairing_code": None}
     if name: vals["name"] = name.strip()[:40]
     await execute(sa.update(m.pixels).where(m.pixels.c.id == pid).values(**vals))
+    if prev and prev.get("household_id") not in (None, household_id):      # ownership transfer: persona starts clean
+        await execute(sa.update(m.personas).where(m.personas.c.pixel_id == pid).values(config={}))
     return await issue_token(pid)
 
 
@@ -150,16 +184,17 @@ async def add_fact(hid: int, text: str, ftype="fact", source_turn=None, pinned=F
     fid = r.scalar_one()
     return await fetch_one(sa.select(m.facts).where(m.facts.c.id == fid))
 
-async def update_fact(fid: int, **patch) -> dict | None:
+async def update_fact(fid: int, hid: int, **patch) -> dict | None:
+    """Household-scoped: a fact id from another household is a no-op returning None."""
     vals = {k: v for k, v in patch.items() if k in ("text", "type", "pinned", "archived") and v is not None}
     if "text" in vals: vals["last_confirmed"] = sa.func.now()
-    if vals: await execute(sa.update(m.facts).where(m.facts.c.id == fid).values(**vals))
-    return await fetch_one(sa.select(m.facts).where(m.facts.c.id == fid))
+    if vals: await execute(sa.update(m.facts).where(m.facts.c.id == fid, m.facts.c.household_id == hid).values(**vals))
+    return await fetch_one(sa.select(m.facts).where(m.facts.c.id == fid, m.facts.c.household_id == hid))
 
-async def confirm_fact(fid: int):
-    await execute(sa.update(m.facts).where(m.facts.c.id == fid).values(last_confirmed=sa.func.now()))
+async def confirm_fact(fid: int, hid: int):
+    await execute(sa.update(m.facts).where(m.facts.c.id == fid, m.facts.c.household_id == hid).values(last_confirmed=sa.func.now()))
 
-async def delete_fact(fid: int): await execute(sa.delete(m.facts).where(m.facts.c.id == fid))
+async def delete_fact(fid: int, hid: int): await execute(sa.delete(m.facts).where(m.facts.c.id == fid, m.facts.c.household_id == hid))
 
 async def forget_all(hid: int):
     await execute(sa.delete(m.facts).where(m.facts.c.household_id == hid))
@@ -175,8 +210,8 @@ async def add_followup(hid: int, text: str, due: str | None = None) -> dict:
     r = await execute(sa.insert(m.followups).values(household_id=hid, text=text.strip(), due=due).returning(m.followups.c.id))
     return await fetch_one(sa.select(m.followups).where(m.followups.c.id == r.scalar_one()))
 
-async def resolve_followup(fid: int, done=True): await execute(sa.update(m.followups).where(m.followups.c.id == fid).values(done=done))
-async def delete_followup(fid: int): await execute(sa.delete(m.followups).where(m.followups.c.id == fid))
+async def resolve_followup(fid: int, hid: int, done=True): await execute(sa.update(m.followups).where(m.followups.c.id == fid, m.followups.c.household_id == hid).values(done=done))
+async def delete_followup(fid: int, hid: int): await execute(sa.delete(m.followups).where(m.followups.c.id == fid, m.followups.c.household_id == hid))
 
 async def summaries(hid: int) -> dict:
     rows = await fetch_all(sa.select(m.summaries).where(m.summaries.c.household_id == hid))
@@ -206,7 +241,7 @@ async def last_turn_ts(hid: int) -> dt.datetime | None:
     async with engine().connect() as c:
         return (await c.execute(sa.select(sa.func.max(m.turns.c.ts)).where(m.turns.c.household_id == hid))).scalar()
 
-async def delete_turn(tid: int): await execute(sa.delete(m.turns).where(m.turns.c.id == tid))
+async def delete_turn(tid: int, hid: int): await execute(sa.delete(m.turns).where(m.turns.c.id == tid, m.turns.c.household_id == hid))
 
 async def count_turns(hid: int, day: str | None = None, tz: str | None = None) -> int:
     q = sa.select(sa.func.count()).select_from(m.turns).where(m.turns.c.household_id == hid)
@@ -235,3 +270,13 @@ async def ambient_set(hid: int, brief: dict):
     from sqlalchemy.dialects.postgresql import insert
     stmt = insert(m.ambient).values(household_id=hid, brief=brief, ts=sa.func.now())
     await execute(stmt.on_conflict_do_update(index_elements=["household_id"], set_={"brief": brief, "ts": sa.func.now()}))
+
+
+async def retention(events_days: int = 90, logs_days: int = 14) -> dict:
+    """Scheduled cleanup: device events, device logs, expired sessions, stale pending registrations."""
+    now = dt.datetime.now(dt.timezone.utc)
+    ev = await execute(sa.delete(m.device_events).where(m.device_events.c.ts < now - dt.timedelta(days=events_days)))
+    lg = await execute(sa.delete(m.device_logs).where(m.device_logs.c.ts < now - dt.timedelta(days=logs_days)))
+    se = await execute(sa.delete(m.sessions).where(m.sessions.c.expires_at < now))
+    pend = await expire_pending()
+    return {"events": getattr(ev, "rowcount", None), "logs": getattr(lg, "rowcount", None), "sessions": getattr(se, "rowcount", None), "pending_pixels": pend}

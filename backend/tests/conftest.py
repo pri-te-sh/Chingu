@@ -2,6 +2,8 @@
 import os, asyncio, pytest, pytest_asyncio
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://pixel:pixel@localhost:5434/pixel")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/9")
+os.environ.setdefault("PIXEL_INFERENCE_URL", "http://localhost:8766")   # app startup must not load speech models in tests
+os.environ.setdefault("SESSION_SECRET", "test-secret-not-for-prod")
 import sqlalchemy as sa
 from pixel import repo, models as m, db
 

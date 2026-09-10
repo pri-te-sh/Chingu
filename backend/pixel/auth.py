@@ -92,6 +92,13 @@ async def current_user(request) -> dict | None:
     return row
 
 
+async def require_admin(request: Request) -> dict:
+    """Platform-wide operations (firmware releases, drain): a signed-in user with is_admin."""
+    u = await require_user(request)
+    if not u.get("is_admin"): raise HTTPException(403, "platform admin required")
+    return u
+
+
 async def require_user(request: Request) -> dict:
     """Portal API guard: valid session + CSRF header on state-changing requests."""
     u = await current_user(request)

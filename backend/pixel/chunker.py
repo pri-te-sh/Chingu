@@ -18,8 +18,11 @@ class Chunker:
                 strong = cand[-1:] in ".!?" or cand[-2:-1] in ".!?"
                 if strong or len(cand) >= need: cut = m.end(); break
                 if len(cand) <= self.max_chars: last_ok = m.end()
-            if cut is None and len(self.buf) > self.max_chars and last_ok:   # long run without a sentence end: cut at the last clause
-                cut = last_ok
+            if cut is not None and cut > self.max_chars:                        # sentence end too far away: take the last clause inside the cap
+                cut = last_ok if last_ok else None
+            if cut is None and len(self.buf) > self.max_chars:                  # long run without any usable boundary: hard cut at whitespace
+                sp = self.buf.rfind(" ", 0, self.max_chars)
+                cut = last_ok if last_ok else (sp + 1 if sp > self.max_chars // 2 else self.max_chars)
             if cut is None: break
             c = self._take(cut)
             if c: out.append(c)
