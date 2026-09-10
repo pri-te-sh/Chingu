@@ -76,6 +76,24 @@ class Supertonic(TTS):
             x = np.asarray(audio, dtype=np.float32).squeeze()
             yield f32_to_pcm(resample(x, 44100, SR))
 
+class QwenModal(TTS):
+    """Qwen3-TTS 0.6B CustomVoice on a Modal GPU (voicelab/modal_tts.py). Non-streaming per chunk; the chunker gives us clauses."""
+    name, note = "qwen-modal", "Qwen3-TTS 0.6B CustomVoice on Modal L4 (scale-to-zero GPU); instruct = expression control"
+    voices = ["Ryan", "Aiden", "Vivian", "Serena", "Uncle_Fu", "Dylan", "Eric", "Ono_Anna", "Sohee"]
+    url = os.environ.get("QWEN_MODAL_URL", ""); key = os.environ.get("VOICELAB_TTS_KEY", "")
+    instruct = os.environ.get("QWEN_INSTRUCT", "warm, playful, a little cheeky")
+    last: dict = {}
+    def load(self):
+        if not self.url: raise RuntimeError("QWEN_MODAL_URL not set (deploy voicelab/modal_tts.py)")
+    def stream(self, text, voice=None):
+        self.load()
+        r = httpx.post(self.url, json={"key": self.key, "text": text, "speaker": voice or self.voices[0], "language": "English", "instruct": self.instruct}, timeout=180)
+        r.raise_for_status()
+        self.last = {k: r.headers.get(k) for k in ("x-gen-ms", "x-audio-s", "x-load-s")}
+        sr = int(r.headers.get("x-sample-rate", "24000"))
+        x = np.frombuffer(r.content, dtype=np.int16).astype(np.float32) / 32768
+        yield f32_to_pcm(resample(x, sr, SR))
+
 class FishSpeech(TTS):
     """OpenAudio S1-mini through the fish-speech API server (run separately, see README). Streams WAV -> PCM."""
     name, note = "fish", "Fish Speech / OpenAudio S1-mini via local API server :8080 - quality reference only, needs a GPU host"
@@ -98,4 +116,4 @@ class FishSpeech(TTS):
                 x = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768
                 if len(x): yield f32_to_pcm(resample(x, 44100, SR))
 
-ENGINES: dict[str, TTS] = {e.name: e for e in [Piper(), Kokoro(), Supertonic(), FishSpeech()]}
+ENGINES: dict[str, TTS] = {e.name: e for e in [Piper(), Kokoro(), Supertonic(), QwenModal(), FishSpeech()]}
