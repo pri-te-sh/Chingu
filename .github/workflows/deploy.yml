@@ -44,6 +44,9 @@ jobs:
           KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           HOST: ${{ secrets.DEPLOY_HOST }}
         run: |
+          [ -n "$KEY" ] || { echo "::error::secret DEPLOY_SSH_KEY is empty or missing (expected the private half of the pixel-ci-deploy key)"; exit 1; }
+          [ -n "$HOST" ] || { echo "::error::secret DEPLOY_HOST is empty or missing (expected the server IP)"; exit 1; }
+          case "$KEY" in *"PRIVATE KEY"*) ;; *) echo "::error::DEPLOY_SSH_KEY does not look like a private key (did you paste the .pub file?)"; exit 1;; esac
           install -m 700 -d ~/.ssh
           printf '%s\n' "$KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
           ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
