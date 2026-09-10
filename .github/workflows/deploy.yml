@@ -1,0 +1,58 @@
+# Continuous deployment: every push to main that touches the backend redeploys the brain on the Hetzner box.
+# Secrets (GitHub → Settings → Secrets and variables → Actions):
+#   DEPLOY_HOST      2.29.41.213
+#   DEPLOY_SSH_KEY   private half of the "pixel-ci-deploy" key (public half is in /home/pixel/.ssh/authorized_keys on the server)
+name: deploy-brain
+on:
+  push:
+    branches: [main]
+    paths: ["backend/**", ".github/workflows/deploy.yml"]
+  workflow_dispatch:
+concurrency: { group: deploy-brain, cancel-in-progress: false }
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_USER: pixel, POSTGRES_PASSWORD: pixel, POSTGRES_DB: pixel }
+        ports: ["5434:5432"]
+        options: --health-cmd "pg_isready -U pixel" --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Run backend tests
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://pixel:pixel@localhost:5434/pixel
+          REDIS_URL: redis://localhost:6379/0
+          SESSION_SECRET: ci-secret-not-for-prod
+          PIXEL_ENV: dev
+        run: |
+          uv run --extra test alembic upgrade head
+          uv run --extra test pytest -q
+  deploy:
+    needs: tests
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy over SSH
+        env:
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/id_deploy pixel@"$HOST" '/opt/pixel/backend/deploy/up.sh'
+      - name: Smoke test
+        env: { HOST: ${{ secrets.DEPLOY_HOST }} }
+        run: |
+          for i in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -k --resolve pixel.priteshbhavsar.com:443:$HOST https://pixel.priteshbhavsar.com/health || true)
+            [ "$code" = "200" ] && echo "healthy" && exit 0; sleep 5
+          done
+          echo "brain did not become healthy"; exit 1
