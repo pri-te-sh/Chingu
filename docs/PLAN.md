@@ -105,7 +105,7 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 
 ### P3b — Portal UX (audit `docs/audits/2026-09-10-portal-ux-audit.md`)
 - [x] Phase 1 (layout/access): composer under the hero, no equal-height card stretching, content-sized chat; mobile PIXELS shows the selected device first, no horizontal overflow; Add-a-Pixel + Firmware collapsed; Manage menu; no Save on the Device tab; household-timezone dates; distinct no-match empty states; labelled + confirmed deletes
-- [ ] Phase 2 (long lists): session-grouped History with server-side pagination/search and device filter; Memory read mode + Edit drawer + filter chips; collapsed dated summaries; follow-ups grouped Overdue/Today/Upcoming/Done
+- [x] Phase 2 (long lists) 2026-09-10: History as conversations (`/api/history` server-side search + pagination over all turns, whole-history day counts, device filter, per-turn details collapsed; 201 turns → 11 conversations on one screen); Memory read mode + Edit + chips + show-more; follow-ups grouped Overdue/Today/Upcoming/Whenever/Done; collapsed dated summaries; clamped Home recap
 - [ ] Phase 3 (clarity): page-local scope/destination instead of the global Pixel selector; Talk diagnostics behind a toggle with plain states; Back-button routing; inline errors with Retry
 - [ ] Phase 4 (polish): body text size/line-height, fewer border layers, softer scanlines behind text; contrast + keyboard pass; physical-phone check
 
