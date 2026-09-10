@@ -96,11 +96,12 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 
 ### P3 — Cutover to a VM (Hetzner CX23 or home box + Cloudflare Tunnel; Oracle dropped)
 - [x] **Hetzner CX23** (Ubuntu 26.04, 2 vCPU/4 GB, 2.29.41.213, SSH key "hetzner") bootstrapped 2026-09-10: docker, ufw 22/80/443, fail2ban, unattended-upgrades, `pixel` user, stack up with prod profile, laptop DB restored (104 turns, 3 pixels), nightly backups cron
-- [ ] DNS `pixel.priteshbhavsar.com` A → 2.29.41.213 on Netlify (Pritesh), then Caddy gets the cert automatically; Google OAuth client later (dev login allowed via PIXEL_ALLOW_DEV_LOGIN=1)
-- [x] CI/CD: `.github/workflows/deploy.yml` — tests on Postgres/Redis services, then SSH `deploy/up.sh` as `pixel` + health smoke test; needs GitHub secrets DEPLOY_HOST + DEPLOY_SSH_KEY (key `~/.ssh/pixel_deploy` on the laptop)
+- [x] DNS `pixel.priteshbhavsar.com` → 2.29.41.213 (Netlify), Let's Encrypt cert via Caddy 2026-09-10; Google OAuth client still to do (dev login allowed via PIXEL_ALLOW_DEV_LOGIN=1)
+- [x] CI/CD live 2026-09-10: `.github/workflows/deploy.yml` — tests on Postgres/Redis services, then SSH `deploy/up.sh` as `pixel` + HTTPS smoke test (secrets DEPLOY_HOST + DEPLOY_SSH_KEY = `~/.ssh/pixel_deploy`); first green run #34433150311
 - [ ] Nightly `pg_dump` → Backblaze B2; weekly restore test; Uptime Kuma alerts
 - [ ] Telemetry: heartbeat v2 (fw, reset reason, min heap, fps, RSSI, reconnects, audio xruns, battery); device log shipping + crash upload; HEALTH portal page (per Pixel + brain latency percentiles); retention jobs
-- [ ] Repoint the board: `POST /api/pixels/21/brain {"host":"pixel.priteshbhavsar.com","port":443,"tls":true}` on the *local* brain once TLS is live (firmware 0.3.2 handles it; token carries over because the DB was migrated); simulator just uses the new URL; then stop the laptop stack and the Modal `pixel-brain` app
+- [x] Board repointed with `POST /api/pixels/21/brain` (firmware 0.3.2) 2026-09-10 — reconnects once the home router's negative DNS cache (1 h) expires; Modal `pixel-brain` app stopped
+- [ ] Stop the laptop Compose stack once the board is confirmed online on the new brain (portal: https://pixel.priteshbhavsar.com/portal)
 
 ### P4 — Pixel-3S bring-up (after hardware arrives)
 - [ ] Download Waveshare 3.5B docs/demo pack; verify camera FPC orientation from schematic
