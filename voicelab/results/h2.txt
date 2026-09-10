@@ -1,0 +1,12 @@
+HTTP/2 200 
+alt-svc: h3=":443"; ma=2592000
+content-type: application/octet-stream
+date: Thu, 10 Sep 2026 01:52:03 GMT
+modal-function-call-id: fc-01M24G7H1578YR4JE0D116PCM6
+vary: accept-encoding
+x-audio-s: 3.36
+x-gen-ms: 2696
+x-load-s: 44.7
+x-sample-rate: 24000
+content-length: 161280
+

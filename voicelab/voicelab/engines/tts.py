@@ -76,23 +76,46 @@ class Supertonic(TTS):
             x = np.asarray(audio, dtype=np.float32).squeeze()
             yield f32_to_pcm(resample(x, 44100, SR))
 
-class QwenModal(TTS):
-    """Qwen3-TTS 0.6B CustomVoice on a Modal GPU (voicelab/modal_tts.py). Non-streaming per chunk; the chunker gives us clauses."""
-    name, note = "qwen-modal", "Qwen3-TTS 0.6B CustomVoice on Modal L4 (scale-to-zero GPU); instruct = expression control"
-    voices = ["Ryan", "Aiden", "Vivian", "Serena", "Uncle_Fu", "Dylan", "Eric", "Ono_Anna", "Sohee"]
-    url = os.environ.get("QWEN_MODAL_URL", ""); key = os.environ.get("VOICELAB_TTS_KEY", "")
-    instruct = os.environ.get("QWEN_INSTRUCT", "warm, playful, a little cheeky")
+class ModalTTS(TTS):
+    """Shared client for the GPU engines in voicelab/modal_tts.py / modal_fish.py (same POST contract).
+    Optional cloning: set VOICELAB_REF_WAV (+ VOICELAB_REF_TEXT) to a short clip and cloning engines use it."""
+    url_env = ""; supports_clone = False; language = os.environ.get("VOICELAB_LANG", "en")
+    instruct = os.environ.get("VOICELAB_INSTRUCT", "warm, playful, a little cheeky")
     last: dict = {}
+    def __init__(self): self.url = os.environ.get(self.url_env, ""); self.key = os.environ.get("VOICELAB_TTS_KEY", "")
     def load(self):
-        if not self.url: raise RuntimeError("QWEN_MODAL_URL not set (deploy voicelab/modal_tts.py)")
+        if not self.url: raise RuntimeError(f"{self.url_env} not set - deploy voicelab/modal_tts.py and paste the URL into voicelab/.env")
+    def body(self, text, voice):
+        b = {"key": self.key, "text": text, "voice": voice or self.voices[0], "language": self.language, "instruct": self.instruct,
+             "exaggeration": float(os.environ.get("VOICELAB_EXAGGERATION", "0.5"))}
+        ref = os.environ.get("VOICELAB_REF_WAV")
+        if ref and self.supports_clone and os.path.exists(ref):
+            import base64; b["ref_audio_b64"] = base64.b64encode(open(ref, "rb").read()).decode(); b["ref_text"] = os.environ.get("VOICELAB_REF_TEXT", "")
+        return b
     def stream(self, text, voice=None):
         self.load()
-        r = httpx.post(self.url, json={"key": self.key, "text": text, "speaker": voice or self.voices[0], "language": "English", "instruct": self.instruct}, timeout=180)
+        r = httpx.post(self.url, json=self.body(text, voice), timeout=300)
         r.raise_for_status()
         self.last = {k: r.headers.get(k) for k in ("x-gen-ms", "x-audio-s", "x-load-s")}
         sr = int(r.headers.get("x-sample-rate", "24000"))
         x = np.frombuffer(r.content, dtype=np.int16).astype(np.float32) / 32768
         yield f32_to_pcm(resample(x, sr, SR))
+
+class QwenModal(ModalTTS):
+    name, note, url_env = "qwen-modal", "Qwen3-TTS 0.6B CustomVoice on Modal L4 - 10 languages, instruct = expression control", "QWEN_MODAL_URL"
+    voices = ["Ryan", "Aiden", "Vivian", "Serena", "Uncle_Fu", "Dylan", "Eric", "Ono_Anna", "Sohee"]
+
+class KokoroModal(ModalTTS):
+    name, note, url_env = "kokoro-modal", "Kokoro-82M on Modal L4 (PyTorch) - same voices as CPU Kokoro, GPU speed", "KOKORO_MODAL_URL"
+    voices = ["af_heart", "af_bella", "af_sky", "am_michael", "am_fenrir", "bf_emma", "bm_george", "am_puck"]
+
+class ChatterboxModal(ModalTTS):
+    name, note, url_env = "chatterbox-modal", "Chatterbox Multilingual on Modal L4 - 23 languages, cloning (VOICELAB_REF_WAV), exaggeration dial", "CHATTERBOX_MODAL_URL"
+    voices = ["default"]; supports_clone = True
+
+class FishModal(ModalTTS):
+    name, note, url_env = "fish-modal", "Fish Speech / OpenAudio S1-mini on Modal L4 - 13 languages, cloning, (emotion) tags", "FISH_MODAL_URL"
+    voices = ["default"]; supports_clone = True
 
 class FishSpeech(TTS):
     """OpenAudio S1-mini through the fish-speech API server (run separately, see README). Streams WAV -> PCM."""
@@ -116,4 +139,4 @@ class FishSpeech(TTS):
                 x = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768
                 if len(x): yield f32_to_pcm(resample(x, 44100, SR))
 
-ENGINES: dict[str, TTS] = {e.name: e for e in [Piper(), Kokoro(), Supertonic(), QwenModal(), FishSpeech()]}
+ENGINES: dict[str, TTS] = {e.name: e for e in [Piper(), Kokoro(), Supertonic(), QwenModal(), KokoroModal(), ChatterboxModal(), FishModal(), FishSpeech()]}

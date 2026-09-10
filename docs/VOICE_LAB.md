@@ -36,6 +36,15 @@ STT at 2 threads: Parakeet 0.6B ~250 ms, fw-base ~380 ms, fw-small/distil ~1.1 s
 Whole-turn budget with Parakeet + Gemma 4 + Supertonic ≈ 0.25 + 0.3 + 0.4 ≈ **1.0 s to first word** on this Mac; expect ~1.3 s on the VM.
 Next: listen (`voicelab/results/*_sample.wav`), then tune the chunker so the first clause is spoken sooner, and try 3 steps.
 
+### GPU engines on Modal (L4, scale-to-zero, `voicelab/modal_tts.py`, 2026-09-09)
+| Engine | Cold call (boot + load + gen) | Warm generation for ~4–6 s speech | Notes |
+|---|---|---|---|
+| Kokoro-82M (PyTorch) | 34 s (load 12 s) | **87 ms** (round trip ~0.5 s) | the CPU bottleneck simply disappears; 8 languages, no cloning |
+| Chatterbox Multilingual | 77 s (load 45 s) | 2.7–3.1 s (RTF ≈ 0.8) | 23 languages, zero-shot cloning, exaggeration dial; needs chunk streaming to feel OK |
+| Qwen3-TTS 0.6B CustomVoice | 59 s (load 10 s) | 13–17 s (RTF ≈ 2.5) | plain-PyTorch path is unusable; needs vLLM-Omni serving |
+| Fish / OpenAudio S1-mini | not deployed yet | | gated weights: needs a Hugging Face token in a Modal secret `huggingface` |
+Budget model (`tools`): speech itself is ~free; cost = idle window + cold starts. Light use fits in the $30 Starter credit on a T4/L4.
+
 ## The test bed (`voicelab/`, http://localhost:8790)
 1. **HEAR** — talk into the browser mic; live VAD meter (energy vs Silero side by side, false-start counter); the utterance is
    sent to every selected STT engine at once → transcripts, ms, diff highlighting against the engine you trust most.
