@@ -41,7 +41,16 @@ void load() {
   brainPort = p.getUShort("port", brainPort); brainTls = p.getBool("tls", brainTls);
   getStr("token", token, sizeof token);
   bool seeded = p.getBool("seeded", false);
+  uint8_t schema = p.getUChar("schema", 1);
   p.end();
+  // schema 2 (2026-09-10): the brain moved from a laptop IP to pixel.priteshbhavsar.com; boards still pointing at a
+  // private LAN address are moved to the compiled-in production default once (Wi-Fi and pairing untouched).
+  if (schema < 2) {
+    if (strncmp(brainHost, "192.168.", 8) == 0 || strncmp(brainHost, "10.", 3) == 0 || strncmp(brainHost, "172.", 4) == 0) {
+      strlcpy(brainHost, PIXEL_DEFAULT_BRAIN_HOST, sizeof brainHost); brainPort = PIXEL_DEFAULT_BRAIN_PORT; brainTls = PIXEL_DEFAULT_BRAIN_TLS;
+    }
+    p.begin("pixel", false); p.putString("host", brainHost); p.putUShort("port", brainPort); p.putBool("tls", brainTls); p.putUChar("schema", 2); p.end();
+  }
 #if HAVE_SECRETS
   if (!seeded && !wifiSsid[0]) {           // one-time seed from the developer's secrets.h
     strlcpy(wifiSsid, WIFI_SSID, sizeof wifiSsid); strlcpy(wifiPass, WIFI_PASSWORD, sizeof wifiPass);
