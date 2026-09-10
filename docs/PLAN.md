@@ -95,11 +95,12 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 - [ ] Port to the brain when convenient: Parakeet STT (verify on real mic first), clause chunker + pauses, echo-proof barge-in
 
 ### P3 — Cutover to a VM (Hetzner CX23 or home box + Cloudflare Tunnel; Oracle dropped)
-- [ ] Oracle A1 VM (Ubuntu 24.04 arm64), PAYG upgrade, firewall; `bootstrap.sh` (docker, fail2ban, unattended-upgrades, clone, compose up)
-- [ ] Domain + Caddy TLS; Google OAuth client; `.env` on the box
+- [x] **Hetzner CX23** (Ubuntu 26.04, 2 vCPU/4 GB, 2.29.41.213, SSH key "hetzner") bootstrapped 2026-09-10: docker, ufw 22/80/443, fail2ban, unattended-upgrades, `pixel` user, stack up with prod profile, laptop DB restored (104 turns, 3 pixels), nightly backups cron
+- [ ] DNS `pixel.priteshbhavsar.com` A → 2.29.41.213 on Netlify (Pritesh), then Caddy gets the cert automatically; Google OAuth client later (dev login allowed via PIXEL_ALLOW_DEV_LOGIN=1)
+- [x] CI/CD: `.github/workflows/deploy.yml` — tests on Postgres/Redis services, then SSH `deploy/up.sh` as `pixel` + health smoke test; needs GitHub secrets DEPLOY_HOST + DEPLOY_SSH_KEY (key `~/.ssh/pixel_deploy` on the laptop)
 - [ ] Nightly `pg_dump` → Backblaze B2; weekly restore test; Uptime Kuma alerts
 - [ ] Telemetry: heartbeat v2 (fw, reset reason, min heap, fps, RSSI, reconnects, audio xruns, battery); device log shipping + crash upload; HEALTH portal page (per Pixel + brain latency percentiles); retention jobs
-- [ ] Import prod data from Modal; repoint device (`secrets.h`) and simulator; retire Modal app
+- [ ] Repoint the board: `POST /api/pixels/21/brain {"host":"pixel.priteshbhavsar.com","port":443,"tls":true}` on the *local* brain once TLS is live (firmware 0.3.2 handles it; token carries over because the DB was migrated); simulator just uses the new URL; then stop the laptop stack and the Modal `pixel-brain` app
 
 ### P4 — Pixel-3S bring-up (after hardware arrives)
 - [ ] Download Waveshare 3.5B docs/demo pack; verify camera FPC orientation from schematic
