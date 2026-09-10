@@ -624,8 +624,11 @@ async def api_pixels_claim(request: Request, body: dict):
     code = (body.get("code") or "").strip().upper()
     p = await repo.pixel_by_code(code) if len(code) == 6 else None
     if not p: raise HTTPException(404, "no device is showing that code")
-    if p.get("household_id") and p["household_id"] != h["id"]: raise HTTPException(409, "that device belongs to another household")
-    tok = await repo.pair(p["id"], h["id"], name=body.get("name") or ("Pixel-3S" if p["device_type"] == "3s" else "Pixel"))
+    # A device showing a pairing code has no valid token (factory reset, portal un-pair, or brand new). Whoever can read the
+    # code off its screen holds the device, so the claim wins even if the row still points at a previous household.
+    rehomed = bool(p.get("household_id")) and p["household_id"] != h["id"]
+    tok = await repo.pair(p["id"], h["id"], name=body.get("name") or p.get("name") or ("Pixel-3S" if p["device_type"] == "3s" else "Pixel"))
+    if rehomed: await repo.device_event(p["id"], "rehomed", from_household=p["household_id"], to_household=h["id"])
     await bus.inbox_push(p["device_id"], {"type": "paired", "token": tok, "name": body.get("name")})
     await repo.device_event(p["id"], "paired", household=h["id"])
     log.info("device.paired", device=p["device_id"], household=h["id"])
