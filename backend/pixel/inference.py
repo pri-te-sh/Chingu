@@ -13,12 +13,13 @@ def _c():
         _client = httpx.AsyncClient(timeout=httpx.Timeout(60, connect=5))
     return _client
 
-async def transcribe(pcm16: bytes) -> str:
+async def transcribe(pcm16: bytes, engine: str | None = None) -> str:
+    """engine: None = worker default (PIXEL_STT_ENGINE), or 'whisper' / 'parakeet' to force one (simulator A/B)."""
     if URL:
-        r = await _c().post(f"{URL}/stt", content=pcm16, headers={"content-type": "application/octet-stream"})
+        r = await _c().post(f"{URL}/stt" + (f"?engine={engine}" if engine else ""), content=pcm16, headers={"content-type": "application/octet-stream"})
         r.raise_for_status(); return r.json()["text"]
     from . import stt
-    return await asyncio.get_running_loop().run_in_executor(None, stt.transcribe, pcm16)
+    return await asyncio.get_running_loop().run_in_executor(None, stt.transcribe, pcm16, engine)
 
 async def synthesize(text: str) -> bytes:
     if URL:

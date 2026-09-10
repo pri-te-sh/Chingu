@@ -328,11 +328,13 @@ async def ws_endpoint(ws: WebSocket):
         if len(pcm) < MIN_UTTERANCE_S * C.SAMPLE_RATE * 2: return
         await send_json(ws, type="expression", name="thinking", intensity=0.5)
         t = time.time()
-        text = await inference.transcribe(pcm)
-        obs.STAGE.labels("stt").observe(time.time() - t)
+        eng = hello.get("stt") if hello.get("stt") in ("whisper", "parakeet") else None     # simulator can pin an engine for A/B
+        text = await inference.transcribe(pcm, eng)
+        stt_ms = int((time.time() - t) * 1000)
+        obs.STAGE.labels("stt").observe(stt_ms / 1000)
         if len(text.strip()) < 2 or text.strip().lower() in STT_JUNK:
             obs.STT_DROPPED.inc(); await send_json(ws, type="expression", name="curious", intensity=0.4); return
-        await send_json(ws, type="transcript", text=text)
+        await send_json(ws, type="transcript", text=text, stt_ms=stt_ms, stt=eng or "default", audio_s=round(len(pcm) / 2 / C.SAMPLE_RATE, 1))
         asyncio.create_task(run_turn(text))
 
     async def injector():

@@ -14,14 +14,15 @@ async def _warm():
     print("[worker] models loaded")
 
 @app.get("/health")
-async def health(): return {"ok": True, "whisper": C.WHISPER_MODEL, "voice": C.PIPER_VOICE}
+async def health(): return {"ok": True, "stt": stt.engine(), "whisper": C.WHISPER_MODEL, "voice": C.PIPER_VOICE}
 
 @app.post("/stt")
 async def do_stt(request: Request):
     pcm = await request.body()
+    eng = request.query_params.get("engine")                     # optional override: ?engine=whisper|parakeet (A/B from the simulator)
     t = time.time()
-    text = await asyncio.get_running_loop().run_in_executor(None, stt.transcribe, pcm)
-    return {"text": text, "seconds": round(time.time() - t, 3), "audio_s": round(len(pcm) / 32000, 2)}
+    text = await asyncio.get_running_loop().run_in_executor(None, stt.transcribe, pcm, eng)
+    return {"text": text, "engine": eng or stt.engine(), "seconds": round(time.time() - t, 3), "audio_s": round(len(pcm) / 32000, 2)}
 
 @app.post("/tts")
 async def do_tts(body: dict):

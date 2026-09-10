@@ -8,6 +8,8 @@ MODELS_DIR = Path(os.environ.get("PIXEL_MODELS_DIR", Path(__file__).resolve().pa
 DATA_DIR = Path(os.environ.get("PIXEL_DATA_DIR", Path(__file__).resolve().parent.parent / "data"))
 
 WHISPER_MODEL = os.environ.get("PIXEL_WHISPER_MODEL", "base.en")
+STT_ENGINE = os.environ.get("PIXEL_STT_ENGINE", "whisper")          # whisper | parakeet  (Parakeet-TDT 0.6B v2, onnx int8; whisper stays loaded as fallback)
+STT_THREADS = int(os.environ.get("PIXEL_STT_THREADS", "2"))
 PIPER_VOICE = os.environ.get("PIXEL_PIPER_VOICE", "en_US-lessac-medium")
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")

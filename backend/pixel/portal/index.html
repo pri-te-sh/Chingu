@@ -181,7 +181,7 @@ header{position:relative}
 <section id="sim"><div class="grid g21">
  <div class="px card" style="text-align:center"><h3 style="text-align:left">VIRTUAL PIXEL · FULL PIPELINE</h3>
   <canvas id="simface" width="44" height="30" title="tap to interrupt Pixel" onclick="simInterrupt()" style="width:440px;height:300px;max-width:100%;background:#000;border:4px solid var(--edge);box-shadow:4px 4px 0 var(--shadow);cursor:pointer"></canvas>
-  <div class="row" style="justify-content:center;margin-top:14px"><span class="tag expr" id="sim-expr">neutral</span><span class="tag" id="sim-state">disconnected</span></div>
+  <div class="row" style="justify-content:center;margin-top:14px"><span class="tag expr" id="sim-expr">neutral</span><span class="tag" id="sim-state">disconnected</span><select id="sim-stt" title="speech-to-text engine (A/B)" style="width:auto;font-size:16px;padding:4px 26px 4px 8px" onchange="localStorage.setItem('sim_stt',this.value);if(SIM.ws){SIM.ws.close();SIM.ws=null;simConnect()}"><option value="">stt: server default</option><option value="whisper">stt: whisper</option><option value="parakeet">stt: parakeet</option></select></div>
   <div class="bar" id="sim-level" style="width:260px;margin:14px auto 0"></div>
   <div class="row" style="justify-content:center;margin-top:16px"><button class="btn" id="sim-ptt" onmousedown="simHold(true)" onmouseup="simHold(false)" onmouseleave="simHold(false)" ontouchstart="event.preventDefault();simHold(true)" ontouchend="simHold(false)">HOLD TO TALK</button><button class="btn cyan" id="sim-live" onclick="simLive()">ALWAYS LISTENING</button><button class="btn ghost" onclick="simStop()">STOP</button></div>
   <div class="kbd" style="margin-top:10px">Same protocol as a real Pixel · browser echo cancellation keeps the mic open while it speaks: talk over it to interrupt · a new question cancels the previous answer · tap the face to interrupt</div></div>
@@ -454,16 +454,16 @@ function simFace(){const cv=$('#simface');if(!cv)return;const x=cv.getContext('2
  if(SIM.mouth>0)SIM.mouth=Math.max(0,SIM.mouth-0.25+ (Math.random()<0.5?0.3:0));}
 function simLog(m){const el=$('#sim-log');const t=SIM.t0?((performance.now()-SIM.t0)/1000).toFixed(2)+'s ':'';el.textContent=(el.textContent+`\n${t}${m}`).split('\n').slice(-40).join('\n');el.scrollTop=1e9}
 function simState(t){$('#sim-state').textContent=t}
-async function simEnter(){if(!SIM.timer)SIM.timer=setInterval(simFace,50);if(!SIM.ws)simConnect()}
+async function simEnter(){const sel=$('#sim-stt');if(sel)sel.value=localStorage.getItem('sim_stt')||'';if(!SIM.timer)SIM.timer=setInterval(simFace,50);if(!SIM.ws)simConnect()}
 function simLeave(){simStop();if(SIM.ws){SIM.ws.close();SIM.ws=null}if(SIM.timer){clearInterval(SIM.timer);SIM.timer=null}}
 function simConnect(){const url=(location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws';const ws=new WebSocket(url);ws.binaryType='arraybuffer';SIM.ws=ws;simState('connecting…');
- ws.onopen=()=>{ws.send(JSON.stringify({type:'hello',device:'sim-'+(localStorage.getItem('sim_id')||(()=>{const v=Math.random().toString(36).slice(2,8);localStorage.setItem('sim_id',v);return v})()),device_type:'sim',aec:true,capabilities:{mic:true,speaker:true}}))};
+ ws.onopen=()=>{ws.send(JSON.stringify({type:'hello',stt:(localStorage.getItem('sim_stt')||''),device:'sim-'+(localStorage.getItem('sim_id')||(()=>{const v=Math.random().toString(36).slice(2,8);localStorage.setItem('sim_id',v);return v})()),device_type:'sim',aec:true,capabilities:{mic:true,speaker:true}}))};
  ws.onclose=()=>{simState('disconnected');SIM.ws=null};ws.onerror=()=>simLog('websocket error');
  ws.onmessage=ev=>{if(ev.data instanceof ArrayBuffer){simPlay(ev.data);return}const d=JSON.parse(ev.data);
   if(d.type==='ready'){simState('ready');simLog('brain ready')}
   else if(d.type==='pairing'){simState('needs pairing');simLog('this simulator is not paired - sign in and reload')}
   else if(d.type==='vad'){SIM.speaking=d.speaking;simState(d.speaking?'hearing you…':'listening');if(d.speaking){SIM.t0=0;simLog('speech start')}else{SIM.t0=performance.now();simLog('speech end → transcribing')}}
-  else if(d.type==='transcript'){$('#sim-heard').innerHTML='<span class="muted">you:</span> '+esc(d.text);$('#sim-reply').textContent='';$('#sim-t1').textContent=$('#sim-t2').textContent=$('#sim-t3').textContent='';simLog('heard: '+d.text)}
+  else if(d.type==='transcript'){$('#sim-heard').innerHTML='<span class="muted">you:</span> '+esc(d.text)+(d.stt_ms!=null?` <span class="kbd">${esc(d.stt)} · ${d.stt_ms} ms · ${d.audio_s}s</span>`:'');$('#sim-reply').textContent='';$('#sim-t1').textContent=$('#sim-t2').textContent=$('#sim-t3').textContent='';simLog('heard: '+d.text)}
   else if(d.type==='expression'){SIM.expr=d.name;$('#sim-expr').textContent=d.name+' '+d.intensity;if(d.name!=='thinking'&&SIM.t0)$('#sim-t1').textContent='face '+Math.round(performance.now()-SIM.t0)+'ms';simLog('expression '+d.name+' '+d.intensity)}
   else if(d.type==='speech_start'){SIM.playT=0;if(SIM.t0)$('#sim-t2').textContent='voice '+Math.round(performance.now()-SIM.t0)+'ms';simLog('voice starts')}
   else if(d.type==='chunk'){const box=$('#sim-reply');if(!box.querySelector('.ck')&&d.state==='queued'){box.innerHTML='<span class="amber">'+esc(CFG.name||'Pixel')+':</span> '}let el=box.querySelector(`[data-ck="${d.id}"]`);if(!el&&d.text){el=document.createElement('span');el.dataset.ck=d.id;el.className='ck queued';el.textContent=d.text;box.appendChild(el)}if(!el)return;
