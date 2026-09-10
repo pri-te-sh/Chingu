@@ -44,3 +44,4 @@ paths on hardware, browser playback cancellation, end-to-end audio timing from l
 | R7 | Per-source limit: 5 anonymous registrations per IP per hour (Redis), plus the global cap; unpaired sockets are closed after 15 min (device reconnects) | source |
 | R8 | Explicit `http://`/`https://` without a port selects that scheme's default port (80/443); bare host keeps hidden defaults; form hint documents `http://host:8765` for dev brains | firmware 0.4.1 |
 | misc | `ws_refused` asserts a policy close code (4001/4003/4029); inter-chunk pauses counted in `audio_s`; OTA has a 10-minute total deadline | |
+| hw | **Hardware OTA validation** (the audit's open item): 0.4.0/0.4.1 crashed with a stack-canary panic when downloading over TLS on the 8 KB loop task; 0.4.2 moves the download to a 16 KB task with the brain link suspended. Verified on the board: manifest over verified TLS → download 0.4.3 → SHA-256 → reboot → reconnect with identity key | serial log + brain events |
