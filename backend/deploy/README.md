@@ -31,4 +31,4 @@ in the portal (PIXELS > FIRMWARE), or on the box: `docker compose exec -T brain 
 - SSH keys only, fail2ban on sshd, unattended security upgrades.
 - Devices authenticate with per-device tokens (hashed in DB); firmware binaries are public but SHA-256 pinned by the manifest.
 
-First automated deployment: 2026-09-10.
+First automated deployment: 2026-09-10 (CI run after the deploy key secret was fixed).
