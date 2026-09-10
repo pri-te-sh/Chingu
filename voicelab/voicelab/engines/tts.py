@@ -113,9 +113,43 @@ class ChatterboxModal(ModalTTS):
     name, note, url_env = "chatterbox-modal", "Chatterbox Multilingual on Modal L4 - 23 languages, cloning (VOICELAB_REF_WAV), exaggeration dial", "CHATTERBOX_MODAL_URL"
     voices = ["default"]; supports_clone = True
 
+class CosyVoiceModal(ModalTTS):
+    name, note, url_env = "cosyvoice-modal", "Fun-CosyVoice3 0.5B on Modal L4 - 9 languages, cloning, instructed emotion, native streaming", "COSYVOICE_MODAL_URL"
+    voices = ["default"]; supports_clone = True
+    instruct = os.environ.get("VOICELAB_INSTRUCT_COSY", "Speak in a warm, playful, slightly cheeky tone.")
+
+class VoxCPMModal(ModalTTS):
+    name, note, url_env = "voxcpm-modal", "VoxCPM1.5 0.8B on Modal L4 - cloning with transcript, voice design by description, 48 kHz", "VOXCPM_MODAL_URL"
+    voices = ["default"]; supports_clone = True
+    instruct = os.environ.get("VOICELAB_INSTRUCT_VOX", "A warm, playful young woman with a slightly cheeky voice")
+
 class FishModal(ModalTTS):
     name, note, url_env = "fish-modal", "Fish Speech / OpenAudio S1-mini on Modal L4 - 13 languages, cloning, (emotion) tags", "FISH_MODAL_URL"
     voices = ["default"]; supports_clone = True
+
+class PocketTTS(TTS):
+    """Kyutai Pocket TTS: 100M, CPU real-time, streaming, clones from any WAV (VOICELAB_REF_WAV). English only, no emotion control.
+    Candidate for the always-on VM fallback voice: clone the same reference as the GPU engine so Pixel keeps one voice."""
+    name, note = "pocket", "Kyutai Pocket TTS (100M, CPU, streaming, cloning via VOICELAB_REF_WAV) - fallback-voice candidate"
+    voices = ["alba", "marius", "javert", "jean", "fantine", "cosette", "eponine", "azelma", "clone"]
+    _m = None; _states: dict = {}
+    def load(self):
+        if self._m is None:
+            import torch; torch.set_num_threads(THREADS)
+            from pocket_tts import TTSModel
+            self._m = TTSModel.load_model()
+    def _state(self, v):
+        if v not in self._states:
+            ref = os.environ.get("VOICELAB_REF_WAV")
+            src = ref if (v == "clone" and ref and os.path.exists(ref)) else (self.voices[0] if v == "clone" else v)
+            self._states[v] = self._m.get_state_for_audio_prompt(src)
+        return self._states[v]
+    def stream(self, text, voice=None):
+        self.load()
+        sr = self._m.sample_rate
+        for chunk in self._m.generate_audio_stream(self._state(voice or self.voices[0]), text):
+            x = chunk.detach().cpu().numpy().astype(np.float32).squeeze()
+            if x.size: yield f32_to_pcm(resample(x, sr, SR))
 
 class FishSpeech(TTS):
     """OpenAudio S1-mini through the fish-speech API server (run separately, see README). Streams WAV -> PCM."""
@@ -139,4 +173,4 @@ class FishSpeech(TTS):
                 x = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768
                 if len(x): yield f32_to_pcm(resample(x, 44100, SR))
 
-ENGINES: dict[str, TTS] = {e.name: e for e in [Piper(), Kokoro(), Supertonic(), QwenModal(), KokoroModal(), ChatterboxModal(), FishModal(), FishSpeech()]}
+ENGINES: dict[str, TTS] = {e.name: e for e in [Piper(), Kokoro(), Supertonic(), PocketTTS(), QwenModal(), KokoroModal(), ChatterboxModal(), CosyVoiceModal(), VoxCPMModal(), FishModal(), FishSpeech()]}
