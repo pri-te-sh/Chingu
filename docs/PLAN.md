@@ -89,9 +89,10 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 - [x] Device settings pass: 3×3 menu (+ Update tile with badge), every value clipped with "..." (`fit()`), Portal/Setup hints wrapped inside 320×240, System shows firmware + device id instead of the serial cheat-sheet
 
 ### P2c — Voice quality lab (before hosting)  → `docs/VOICE_LAB.md`
-- [ ] `voicelab/` scaffold: engine registries (STT: faster-whisper base/small, mlx-whisper large-v3-turbo, Parakeet-TDT 0.6B; TTS: Piper, Kokoro-82M, Fish/OpenAudio S1-mini, Chatterbox; VAD: energy vs Silero), bench CLI
-- [ ] Test-bed web app: HEAR (multi-engine STT + VAD meter), SPEAK (A/B TTS + ratings), TALK (full pipeline, streaming, barge-in, per-turn timeline), RESULTS
-- [ ] Decide engines + voice; port winners into the worker behind `pixel/engines/*`; measure end-of-speech → first word on the simulator and the board
+- [x] `voicelab/` scaffold + bench CLI: STT (faster-whisper base/small/distil, Parakeet-TDT 0.6B), TTS CPU (Piper, Kokoro, Supertonic, Pocket TTS), TTS on Modal GPU (Kokoro, Chatterbox, Qwen3-TTS, VoxCPM, CosyVoice3, Fish scaffold), VAD energy vs Silero
+- [x] Test-bed web app: HEAR / SPEAK / TALK (chunk pipeline visualised inline, pauses, echo-proof barge-in) / RESULTS
+- [x] **Decision 2026-09-10: keep Piper for now; Modal apps stopped; lab parked.** Full findings in `docs/VOICE_LAB.md`
+- [ ] Port to the brain when convenient: Parakeet STT (verify on real mic first), clause chunker + pauses, echo-proof barge-in
 
 ### P3 — Cutover to a VM (Hetzner CX23 or home box + Cloudflare Tunnel; Oracle dropped)
 - [ ] Oracle A1 VM (Ubuntu 24.04 arm64), PAYG upgrade, firewall; `bootstrap.sh` (docker, fail2ban, unattended-upgrades, clone, compose up)

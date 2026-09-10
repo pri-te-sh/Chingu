@@ -14,8 +14,9 @@ def dl():
 
 img = (modal.Image.debian_slim(python_version="3.10").apt_install("git", "git-lfs", "sox", "libsox-dev", "ffmpeg", "build-essential")
        .run_commands("git clone --recursive --depth 1 https://github.com/FunAudioLLM/CosyVoice.git /opt/CosyVoice")
+       .pip_install("setuptools<75", "wheel", "cython", "packaging")
        .pip_install("torch==2.6.0", "torchaudio==2.6.0", index_url="https://download.pytorch.org/whl/cu124")
-       .run_commands("cd /opt/CosyVoice && grep -viE '^(torch|torchaudio|tensorrt|onnxruntime-gpu|deepspeed|vllm)' requirements.txt > req.txt && pip install -r req.txt")
+       .run_commands("cd /opt/CosyVoice && grep -viE '^(torch|torchaudio|tensorrt|onnxruntime-gpu|deepspeed|vllm|gradio|tensorboard|openai-whisper|--extra)' requirements.txt > req.txt && pip install 'setuptools<75' && pip install -r req.txt && pip install 'openai-whisper>=20250625' --no-deps && pip install tiktoken more-itertools")
        .pip_install("fastapi[standard]", "huggingface_hub", "soundfile", "numpy", "onnxruntime")
        .run_function(dl))
 

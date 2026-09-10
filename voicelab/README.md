@@ -14,3 +14,8 @@ Optional engines:
   The lab's `fish` engine talks to it. Weights need a (free) Hugging Face token accepted on the model page.
 
 Results accumulate in `results/*.jsonl`; the RESULTS tab shows medians. Plan and exit criteria: `docs/VOICE_LAB.md`.
+
+## Status
+Parked 2026-09-10 — decision: Piper stays Pixel's voice for now. Findings and the resume plan: `docs/VOICE_LAB.md`.
+Modal apps (`modal_tts.py`, `modal_voxcpm.py`, `modal_cosyvoice.py`, `modal_fish.py`) are stopped; redeploy needs the `voicelab-tts` Modal secret
+(`VOICELAB_TTS_KEY`) recreated and the printed URLs pasted into `.env`.

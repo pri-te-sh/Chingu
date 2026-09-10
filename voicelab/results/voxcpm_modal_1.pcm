@@ -1,0 +1,1 @@
+{"detail":"generate failed: The expanded size of the tensor (43) must match the existing size (17) at non-singleton dimension 2.  Target sizes: [1, 2, 43, 64].  Tensor sizes: [2, 17, 64]"}

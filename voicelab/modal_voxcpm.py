@@ -23,7 +23,7 @@ class VoxCPM:
     def load(self):
         from voxcpm import VoxCPM as V
         t0 = time.time()
-        self.model = V.from_pretrained("/models/voxcpm", load_denoiser=False)
+        self.model = V.from_pretrained("/models/voxcpm", load_denoiser=False, optimize=False)   # torch.compile + CUDA graphs crash on L4 (index-out-of-bounds asserts); plain eager is stable
         self.model.generate(text="Warm up.", cfg_value=2.0, inference_timesteps=10)
         self.loaded_in = time.time() - t0
     @modal.fastapi_endpoint(method="POST", docs=False)
@@ -42,7 +42,11 @@ class VoxCPM:
         elif body.get("instruct"):
             text = f"({body['instruct']})" + text                      # voice design by description
         t0 = time.time()
-        w = np.asarray(self.model.generate(text=text, **kw), dtype=np.float32).squeeze()
+        try:
+            w = np.asarray(self.model.generate(text=text, **kw), dtype=np.float32).squeeze()
+        except RuntimeError as e:
+            if "CUDA" in str(e): import threading; threading.Timer(0.5, lambda: os._exit(1)).start()
+            raise HTTPException(500, f"generate failed: {str(e)[:200]}")
         sr = getattr(self.model, "sample_rate", None) or getattr(getattr(self.model, "tts_model", None), "sample_rate", 44100)
         pcm = (np.clip(w, -1, 1) * 32767).astype(np.int16).tobytes()
         return Response(pcm, media_type="application/octet-stream", headers={"X-Sample-Rate": str(sr), "X-Gen-ms": f"{(time.time()-t0)*1000:.0f}", "X-Audio-s": f"{len(w)/sr:.2f}", "X-Load-s": f"{self.loaded_in:.1f}"})

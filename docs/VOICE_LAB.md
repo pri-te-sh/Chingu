@@ -1,5 +1,53 @@
 # Voice Lab — refining Pixel's conversation layer (P2c)
 
+> **Status 2026-09-10: PARKED. Decision: keep Piper as Pixel's voice for now; Parakeet-TDT 0.6B is the STT to adopt.**
+> The lab (`voicelab/`) and every engine adapter stay in the repo. The Modal GPU apps were stopped (they cost nothing stopped; redeploy
+> with `backend/.venv/bin/modal deploy voicelab/modal_*.py` after recreating the `voicelab-tts` secret with a `VOICELAB_TTS_KEY`).
+> Resume by reading "Findings" and "If we revisit" below.
+
+## Findings (complete, 2026-09-09/10)
+### STT — clear winner
+| Engine (CPU, 2 threads) | Latency per utterance | Accuracy on synthetic audio | Verdict |
+|---|---|---|---|
+| **Parakeet-TDT 0.6B v2 (onnx int8)** | ~250 ms (first call ~1 s) | 0 % WER | **adopt** — 30 % faster than whisper-base, far better published WER; needs `onnx-asr` in the worker image (~0.7 GB) |
+| faster-whisper base.en int8 (today) | ~380 ms | 0 % | fallback |
+| faster-whisper small.en / distil-small.en | ~1.1–1.2 s | 0 % / 3 % | too slow on 2 vCPU |
+Real-mic accuracy was **not** measured (HEAR tab never got a full run with Pritesh's voice) — do that before switching production STT.
+
+### TTS on CPU (the VM has 2 vCPU, no GPU)
+| Engine | First audio | RTF | Voice | Extras | Verdict |
+|---|---|---|---|---|---|
+| **Piper lessac-medium** | ~90 ms | 0.04 | robotic but clear | — | **keep (decision)** |
+| Pocket TTS (Kyutai, 100M) | ~60 ms after voice-state warm-up (600 ms once per voice) | 0.25 | good | native streaming, **clones any WAV**, English only, CC-BY-4.0 | best CPU upgrade path if we ever want cloning without a GPU |
+| Supertonic 3 (99M onnx) | ~500 ms per chunk | 0.14 at 4 flow steps | good | 31 languages, 10 preset voices, no cloning | strong CPU alternative |
+| Kokoro-82M | 0.7–1.4 s per chunk (≈550 ms fixed per call) | 0.6–0.7 | Pritesh's favourite | 8 languages, no cloning | too slow on 2 vCPU; fine on 4 vCPU; int8 is *slower* on CPU |
+| Chatterbox 0.5B | n/a | 5–6.5 | superb | cloning, emotion dial | GPU-only |
+| Qwen3-TTS 0.6B | n/a | 7–13 | superb | cloning, instruct | GPU-only |
+
+### TTS on Modal GPU (L4, scale-to-zero; `voicelab/modal_*.py`)
+| Engine | Cold call | Warm gen for ~4–6 s speech | Notes |
+|---|---|---|---|
+| Kokoro (PyTorch) | 34 s | **87 ms** | GPU removes Kokoro's only weakness |
+| Chatterbox Multilingual | 77 s (45 s load) | 2.7–3.1 s (RTF ≈ 0.8) | 23 langs, cloning, exaggeration; works with clause chunking |
+| VoxCPM 1.5 (0.8B) | ~45 s | ~3 s (RTF ≈ 0.9) eager; `optimize=True` (torch.compile) crashes with CUDA asserts on L4 | cloning + voice design; 44.1 kHz |
+| Qwen3-TTS 0.6B CustomVoice | 59 s | 13–17 s (RTF ≈ 2.5) | plain-PyTorch path unusable; needs their vLLM-Omni server. bf16 on T4 is emulated (slow); fp16 overflows the sampler |
+| Fun-CosyVoice3 0.5B | image builds after fixes (setuptools<75, openai-whisper>=2025, keep gdown/matplotlib); **never measured** — the last container failed on `gdown` import before the fix was deployed | native streaming, cloning, instructed emotion — the most promising GPU candidate on paper |
+| Fish / OpenAudio S1-mini | not deployed (gated weights → needs HF token in a Modal secret `huggingface`) | | |
+Cost model: speech itself is ~free (0.4 GPU-s per reply); the bill is idle window + cold starts. Light use (4 chats/day, 2-min window) ≈ $11/mo on T4, inside the $30 Starter credit; typical use ≈ $34; keep-warm evenings ≈ $130. Any GPU voice needs a CPU fallback for the 30–80 s cold start.
+
+### Turn-taking / pipeline (kept — these apply to the brain regardless of engine)
+- Clause-level chunker (`voicelab/chunker.py`): first clause out after ≥12 chars, then sentences, scan *every* boundary, cap 160 chars. Fixes the "one giant chunk" bug.
+- Punctuation-aware pauses between chunks: 140 ms after a clause, 320 ms after a sentence, none after the last — "natural" preset felt right.
+- Echo-proof barge-in: while Pixel speaks, ignore the mic unless RMS > 2500 for ≥ 300 ms (speaker bleed was cancelling turns).
+- Whole-turn budget measured (Parakeet + Gemma 4 cloud + Piper): transcript ~170–250 ms, first token ~270–440 ms, **first audio ~450 ms** after end of speech.
+- LLM: `num_predict` 600 with a prompt that stays short by default but goes long when asked.
+
+## If we revisit
+1. Port to the brain first (no GPU needed): Parakeet STT, the chunker + pauses, echo-proof barge-in, the per-chunk pipeline events (nice for the portal simulator).
+2. Voice upgrade path without GPU: Pocket TTS (cloning) or Supertonic (multilingual). With GPU: finish CosyVoice3 measurement, then Kokoro-on-Modal as the cheap, fast option.
+3. Decide whose voice Pixel gets before investing in cloning (5–10 s clean reference clip).
+
+
 Goal: make a Pixel turn feel like ChatGPT voice mode — natural voice, accurate hearing, sub-second reaction — and pick
 the engines by measurement, not by reputation. Everything runs natively on the Mac in `voicelab/`, **CPU-only and capped at 2 threads** so the numbers predict the target
 VM (Hetzner CX23: 2 vCPU, 4 GB, no GPU). One M1 Pro core is roughly 1.5–2× a shared cloud vCPU, so read latencies as optimistic by that factor.
