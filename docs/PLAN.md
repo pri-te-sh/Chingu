@@ -96,7 +96,8 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 
 ### P3 — Cutover to a VM (Hetzner CX23 or home box + Cloudflare Tunnel; Oracle dropped)
 - [x] **Hetzner CX23** (Ubuntu 26.04, 2 vCPU/4 GB, 2.29.41.213, SSH key "hetzner") bootstrapped 2026-09-10: docker, ufw 22/80/443, fail2ban, unattended-upgrades, `pixel` user, stack up with prod profile, laptop DB restored (104 turns, 3 pixels), nightly backups cron
-- [x] DNS `pixel.priteshbhavsar.com` → 2.29.41.213 (Netlify), Let's Encrypt cert via Caddy 2026-09-10; Google OAuth client still to do (dev login allowed via PIXEL_ALLOW_DEV_LOGIN=1)
+- [x] DNS `pixel.priteshbhavsar.com` → 2.29.41.213 (Netlify), Let's Encrypt cert via Caddy 2026-09-10
+- [x] Google sign-in 2026-09-10: GCP project `pixel-companion-508203`, consent screen "Pixel Companion" (External, **Testing** — only listed test users; "Pixel" alone is rejected as a Google trademark), web client with redirect `https://pixel.priteshbhavsar.com/auth/callback`; creds in the server `.env`; dev login still allowed (PIXEL_ALLOW_DEV_LOGIN=1) until Google login is confirmed, then set it to 0
 - [x] CI/CD live 2026-09-10: `.github/workflows/deploy.yml` — tests on Postgres/Redis services, then SSH `deploy/up.sh` as `pixel` + HTTPS smoke test (secrets DEPLOY_HOST + DEPLOY_SSH_KEY = `~/.ssh/pixel_deploy`); first green run #34433150311
 - [ ] Nightly `pg_dump` → Backblaze B2; weekly restore test; Uptime Kuma alerts
 - [ ] Telemetry: heartbeat v2 (fw, reset reason, min heap, fps, RSSI, reconnects, audio xruns, battery); device log shipping + crash upload; HEALTH portal page (per Pixel + brain latency percentiles); retention jobs
