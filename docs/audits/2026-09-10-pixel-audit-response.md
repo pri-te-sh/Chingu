@@ -45,3 +45,11 @@ paths on hardware, browser playback cancellation, end-to-end audio timing from l
 | R8 | Explicit `http://`/`https://` without a port selects that scheme's default port (80/443); bare host keeps hidden defaults; form hint documents `http://host:8765` for dev brains | firmware 0.4.1 |
 | misc | `ws_refused` asserts a policy close code (4001/4003/4029); inter-chunk pauses counted in `audio_s`; OTA has a 10-minute total deadline | |
 | hw | **Hardware OTA validation** (the audit's open item): 0.4.0/0.4.1 crashed with a stack-canary panic when downloading over TLS on the 8 KB loop task; 0.4.2 moves the download to a 16 KB task with the brain link suspended. Verified on the board: manifest over verified TLS → download 0.4.3 → SHA-256 → reboot → reconnect with identity key | serial log + brain events |
+
+
+## Verification pass 3 (`2026-09-10-pixel-verification-3.md`) — V1, V2
+
+| # | Fix | Test |
+|---|---|---|
+| V1 | Sessions carry an ownership snapshot (household, token hash, archived). It is re-checked before every text/audio turn and every ~5 s by the injector; a mismatch closes the socket 4001. `revoke_sessions()` closes any live socket for a device immediately on: device-initiated release, portal un-pair, portal remove, and a successful claim. A new authenticated connection for the same device supersedes the old one (4000). | `test_live_socket_is_revoked_when_device_changes_hands` |
+| V2 | The credential-free grandfather branch is removed: a paired row with no token is refused unless the unit proves its identity key. Production check: zero token-less physical rows existed. | `test_tokenless_legacy_row_is_not_authenticated_by_device_id_alone` |

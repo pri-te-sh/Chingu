@@ -100,6 +100,7 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 - [ ] Owner: rotate the home Wi-Fi password (it was in the purged file); optionally ask GitHub support to gc the old objects
 - [x] Re-audit R1–R8 fixed (legacy key enrolment, archive revocation, retention safety, persona reset on transfer, 503 health, full backup set, per-IP registration limit, setup-form ports) — 26 tests
 - [x] OTA over verified TLS validated on hardware (0.4.2 → 0.4.3); found and fixed a loop-task stack overflow in the download path
+- [x] Verification pass 3: live-socket revocation on ownership change (V1), grandfather branch removed (V2) — 28 tests
 - [ ] Still open: browser playback-cancellation test, end-to-end audio timing from last spoken word; household invites so a second Google account can join "Home"
 
 ### P3 — Cutover to a VM (Hetzner CX23 or home box + Cloudflare Tunnel; Oracle dropped)

@@ -42,6 +42,16 @@ sessions: dict[str, "Session"] = {}       # device_id -> live session in THIS pr
 started_at = time.time()
 
 
+async def revoke_sessions(device_id: str, reason: str):
+    """Close every live socket for a device whose authorization changed (release, claim, un-pair, remove)."""
+    old = sessions.pop(device_id, None)
+    if old is None: return
+    if old.turn_task and not old.turn_task.done(): old.turn_task.cancel()
+    try: await old.ws.close(code=4001, reason=reason)
+    except Exception: pass
+    log.warning("device.revoked", device=device_id, reason=reason)
+
+
 class Session:
     def __init__(self, ws: WebSocket, pixel: dict):
         self.ws, self.pixel = ws, pixel
@@ -52,6 +62,12 @@ class Session:
         self.turn_task: asyncio.Task | None = None
         self.speaking_until = 0.0
         self.first_status = False
+        self.auth_gen = (pixel.get("household_id"), pixel.get("token_hash"), pixel.get("archived"))   # ownership snapshot; any change revokes this socket
+
+    async def still_authorized(self) -> bool:
+        """The row's ownership/token must be exactly what this socket authenticated against."""
+        p = await repo.pixel(self.pid)
+        return bool(p) and (p.get("household_id"), p.get("token_hash"), p.get("archived")) == self.auth_gen
 
 
 @app.on_event("startup")
@@ -313,12 +329,11 @@ async def ws_endpoint(ws: WebSocket):
             else:
                 log.warning("device.bad_token", device=device_id); await ws.close(code=4001, reason="unauthorized"); return
         if paired and not token_ok:
-            if pixel.get("token_hash") is None and pixel.get("paired_at") is not None and not pixel.get("device_key_hash"):
-                tok = await repo.issue_token(pixel["id"])                # grandfathered device (paired before tokens existed, never keyed)
-                await send_json(ws, type="paired", token=tok, name=pixel["name"]); log.info("device.grandfathered", device=device_id)
-            elif pixel.get("device_key_hash"):
-                # The physical unit (identity proven above) lost its token: factory reset or on-device un-pair. Release it for re-pairing.
+            if pixel.get("device_key_hash"):
+                # The physical unit (identity proven above) lost its token: factory reset or on-device un-pair. Release it for re-pairing,
+                # and revoke any socket still authenticated under the old ownership right now (V1).
                 await repo.unpair(pixel["id"]); await repo.device_event(pixel["id"], "released", reason="device lost its token")
+                await revoke_sessions(device_id, "device released")
                 pixel = await repo.pixel(pixel["id"]); paired = False; log.info("device.released", device=device_id)
             else:
                 log.warning("device.bad_token", device=device_id); await ws.close(code=4001, reason="unauthorized"); return
@@ -342,6 +357,11 @@ async def ws_endpoint(ws: WebSocket):
             await ws.close(code=4008, reason="pairing session expired - reconnect"); return
         except WebSocketDisconnect: return
 
+    old = sessions.get(device_id)
+    if old is not None:                                   # one live socket per device: a new authenticated connection supersedes the old one
+        try: await old.ws.close(code=4000, reason="superseded by a new connection")
+        except Exception: pass
+        sessions.pop(device_id, None)
     sess = Session(ws, pixel); sessions[device_id] = sess
     obs.WS_SESSIONS.inc()
     structlog.contextvars.bind_contextvars(pixel=pixel["id"], device=device_id)
@@ -359,6 +379,8 @@ async def ws_endpoint(ws: WebSocket):
 
     async def _turn(text: str):
         nonlocal cfg
+        if not await sess.still_authorized():             # ownership or token changed since this socket authenticated
+            log.warning("device.revoked", device=device_id); await ws.close(code=4001, reason="authorization changed"); return
         sess.busy = True
         try:
             cfg = await settings.resolve(sess.hid, sess.pid)
@@ -388,6 +410,7 @@ async def ws_endpoint(ws: WebSocket):
 
     async def handle_utterance(pcm: bytes):
         if len(pcm) < MIN_UTTERANCE_S * C.SAMPLE_RATE * 2: return
+        if not await sess.still_authorized(): await revoke_sessions(device_id, "authorization changed"); return
         await send_json(ws, type="expression", name="thinking", intensity=0.5)
         t = time.time()
         eng = hello.get("stt") if hello.get("stt") in ("whisper", "parakeet") else None     # simulator can pin an engine for A/B
@@ -400,7 +423,15 @@ async def ws_endpoint(ws: WebSocket):
         asyncio.create_task(run_turn(text))
 
     async def injector():
+        ticks = 0
         while True:
+            ticks += 1
+            if ticks % 5 == 0 and not await sess.still_authorized():       # every ~5 s: revoke live sockets whose device was released/claimed/removed
+                log.warning("device.revoked", device=device_id)
+                if sess.turn_task and not sess.turn_task.done(): sess.turn_task.cancel()
+                try: await ws.close(code=4001, reason="authorization changed")
+                except Exception: pass
+                return
             try: msgs = await bus.inbox_drain(device_id)
             except Exception as e: log.warning("inbox.error", error=repr(e)); msgs = []
             for msg in msgs:
@@ -476,6 +507,7 @@ async def ws_endpoint(ws: WebSocket):
                     utt = vad.flush()
                     if utt: await handle_utterance(utt)
                 elif t == "text":
+                    if not await sess.still_authorized(): await revoke_sessions(device_id, "authorization changed"); break
                     await send_json(ws, type="transcript", text=data["text"]); asyncio.create_task(run_turn(data["text"]))
             elif msg.get("type") == "websocket.disconnect": break
     except WebSocketDisconnect: pass
@@ -743,6 +775,7 @@ async def api_pixels_claim(request: Request, body: dict):
     # Only an UNPAIRED device is claimable (pixel_by_code filters on that). A paired device must be released first:
     # portal UNPAIR by its owner, or factory reset / un-pair on the device itself (identity-key verified).
     tok = await repo.pair(p["id"], h["id"], name=body.get("name") or p.get("name") or ("Pixel-3S" if p["device_type"] == "3s" else "Pixel"))
+    await revoke_sessions(p["device_id"], "claimed")           # a stale socket from before the claim must not continue
     await bus.inbox_push(p["device_id"], {"type": "paired", "token": tok, "name": body.get("name")})
     await repo.device_event(p["id"], "paired", household=h["id"])
     log.info("device.paired", device=p["device_id"], household=h["id"])
@@ -767,7 +800,8 @@ async def api_pixel_revoke(request: Request, pid: int):
     p = await repo.pixel(pid)
     if not p or p["household_id"] != h["id"]: raise HTTPException(404)
     await repo.unpair(pid)
-    await bus.inbox_push(p["device_id"], {"type": "unpaired"})
+    await bus.inbox_push(p["device_id"], {"type": "unpaired"})       # tells the device to forget its token (if this brain process has its socket, revoke now too)
+    await revoke_sessions(p["device_id"], "unpaired by owner")
     await repo.device_event(pid, "unpaired")
     return {"ok": True}
 
@@ -779,6 +813,7 @@ async def api_pixel_delete(request: Request, pid: int):
     if not p or p["household_id"] != h["id"]: raise HTTPException(404)
     await bus.inbox_push(p["device_id"], {"type": "unpaired"})
     await repo.archive_pixel(pid)                      # history is kept; the device shows a pairing code again
+    await revoke_sessions(p["device_id"], "removed by owner")
     await repo.device_event(pid, "removed")
     return {"ok": True}
 

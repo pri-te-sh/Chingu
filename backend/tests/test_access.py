@@ -232,3 +232,44 @@ def test_health_reports_503_when_a_dependency_is_down(client, monkeypatch):
     async def down(): return False
     monkeypatch.setattr(inference, "ready", down)
     r = client.get("/health"); assert r.status_code == 503 and r.json()["parts"]["worker"] is False
+
+
+def test_live_socket_is_revoked_when_device_changes_hands(client):
+    """V1: a socket authenticated for household A must not keep working after the device is released and claimed by B."""
+    ua, ha, ca = make_user(client, "alice"); ub, hb, cb = make_user(client, "bob")
+    dev = f"lite-{uuid.uuid4().hex[:6]}"
+    try:
+        p = run(client, repo.get_or_create_pixel, dev, "lite", household_id=ha)
+        token = run(client, repo.issue_token, p["id"]); run(client, repo.set_pixel_key, p["id"], "unit-key-revoke-0123456789")
+        with client.websocket_connect("/ws") as ws_a:
+            ws_a.send_text(json.dumps({"type": "hello", "device": dev, "device_type": "lite", "device_key": "unit-key-revoke-0123456789", "token": token}))
+            assert json.loads(ws_a.receive_text())["type"] == "ready"; ws_a.receive_text()          # config
+            # the unit reconnects without its token (reset) -> released; the old socket is superseded
+            with client.websocket_connect("/ws") as ws_b:
+                ws_b.send_text(json.dumps({"type": "hello", "device": dev, "device_type": "lite", "device_key": "unit-key-revoke-0123456789"}))
+                msg = json.loads(ws_b.receive_text()); assert msg["type"] == "pairing"
+                assert client.post("/api/pixels/claim", json={"code": msg["code"]}, cookies=cb, headers=HDR).status_code == 200
+            assert run(client, repo.pixel_by_device, dev)["household_id"] == hb
+            # any further use of the original socket is refused (closed 4000 superseded or 4001 revoked), never served under A
+            from starlette.websockets import WebSocketDisconnect
+            try:
+                ws_a.send_text(json.dumps({"type": "text", "text": "what do you know about alice?"}))
+                for _ in range(10):
+                    d = json.loads(ws_a.receive_text())
+                    assert d.get("type") not in ("transcript", "reply", "speech_start"), f"old socket still served: {d}"
+                assert False, "old socket was not closed"
+            except WebSocketDisconnect as e:
+                assert e.code in (4000, 4001)
+    finally: cleanup(client, ha, hb)
+
+
+def test_tokenless_legacy_row_is_not_authenticated_by_device_id_alone(client):
+    """V2: the grandfather branch is gone - a paired row with no token and no key refuses anonymous hellos."""
+    ua, ha, ca = make_user(client, "owner")
+    dev = f"lite-{uuid.uuid4().hex[:6]}"
+    try:
+        run(client, repo.get_or_create_pixel, dev, "lite", household_id=ha)              # paired_at set, token_hash NULL, no key
+        assert ws_refused(client, {"type": "hello", "device": dev, "device_type": "lite"})
+        assert ws_refused(client, {"type": "hello", "device": dev, "device_type": "lite", "device_key": "some-new-key-0123456789ab"})
+        assert run(client, repo.pixel_by_device, dev)["household_id"] == ha
+    finally: cleanup(client, ha)
