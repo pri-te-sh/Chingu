@@ -29,10 +29,12 @@ bool tls();
 const char* pairingCode();              // "" unless the brain is waiting for the owner to claim us
 const char* apName();                   // SoftAP name while provisioning
 void startProvisioning();               // drop Wi-Fi creds and open the setup portal
+void suspend();                         // close the brain link (before an OTA download); resume() reconnects
 void sendText(const char* text);
 void sendAudio(const uint8_t* pcm16, size_t len);
 void sendEnd();
 const Turn& lastTurn();
+void resume();
 bool sendPing();
 uint32_t pongRtt();
 }

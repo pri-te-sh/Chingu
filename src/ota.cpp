@@ -93,8 +93,27 @@ bool check(Manifest& out) {
 
 static void hex(const uint8_t* in, char* out) { for (int i = 0; i < 32; i++) sprintf(out + i * 2, "%02x", in[i]); out[64] = 0; }
 
+static bool doUpdate(const Manifest& m);
+struct UpdateJob { const Manifest* m; volatile bool done; bool ok; };
+static void updateTask(void* arg) {
+  UpdateJob* j = (UpdateJob*)arg;
+  j->ok = doUpdate(*j->m); j->done = true;
+  vTaskDelete(nullptr);
+}
+
 bool update(const Manifest& m) {
+  // TLS + HTTP + SHA-256 + a 2 KB buffer do not fit on the 8 KB Arduino loop stack (stack-canary panic on 0.4.0):
+  // run the download on its own 16 KB task and just wait here. The brain link is closed first to free its TLS memory.
   if (!m.valid || !net::wifiUp()) return false;
+  net::suspend(); delay(200);
+  UpdateJob job{&m, false, false};
+  if (xTaskCreatePinnedToCore(updateTask, "ota", 16384, &job, 1, nullptr, 1) != pdPASS) { net::resume(); state_ = "failed"; return false; }
+  while (!job.done) delay(50);
+  if (!job.ok) net::resume();
+  return job.ok;
+}
+
+static bool doUpdate(const Manifest& m) {
   dbg::log("[ota] downloading %s (%u bytes)", m.url, m.size);
   state_ = "downloading"; progress_ = 0; report("connecting");
   HTTPClient http; WiFiClientSecure sec; WiFiClient plain;
@@ -107,7 +126,7 @@ bool update(const Manifest& m) {
   if (!Update.begin(len)) { http.end(); state_ = "failed"; dbg::log("[ota] not enough space: %s", Update.errorString()); return false; }
   mbedtls_sha256_context sha; mbedtls_sha256_init(&sha); mbedtls_sha256_starts(&sha, 0);
   WiFiClient* stream = http.getStreamPtr();
-  uint8_t buf[2048]; int got = 0; uint32_t lastLog = 0, lastData = millis(), t0 = millis();
+  static uint8_t buf[2048]; int got = 0; uint32_t lastLog = 0, lastData = millis(), t0 = millis();
   while (http.connected() && got < len) {
     if (millis() - t0 > 600000UL) { dbg::log("[ota] download exceeded 10 minutes"); Update.abort(); http.end(); state_ = "failed"; return false; }
     size_t avail = stream->available();

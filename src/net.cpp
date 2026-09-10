@@ -20,7 +20,7 @@ static WebSocketsClient ws;
 static Face* face_ = nullptr;
 static TFT_eSPI* tft_ = nullptr;
 static State state_ = CONNECTING_WIFI;
-static bool ready_ = false, wsBegun_ = false;
+static bool ready_ = false, wsBegun_ = false, suspended_ = false;
 static uint32_t pingSent_ = 0, pongRtt_ = 0, holdOffUntil_ = 0, lastStatus_ = 0;
 static char pairingCode_[8] = "";
 static char apName_[24] = "";
@@ -223,6 +223,9 @@ static void sendStatus() {
   String s; serializeJson(d, s); ws.sendTXT(s);
 }
 
+void suspend() { suspended_ = true; ready_ = false; ws.disconnect(); dbg::log("[net] brain link suspended"); }
+void resume() { suspended_ = false; wsBegun_ = false; if (wifiUp()) wsConnect(); dbg::log("[net] brain link resumed"); }
+
 void begin(Face& face, TFT_eSPI& tft) {
   face_ = &face; tft_ = &tft;
   ws.onEvent(onEvent);
@@ -263,7 +266,7 @@ void loop() {
     if (time(nullptr) > 1700000000 || millis() - ntpStart > 20000) { dbg::log("[net] clock %s, connecting over TLS", time(nullptr) > 1700000000 ? "synced" : "NOT synced"); wsConnect(); }
   }
   if (holdOffUntil_ && millis() > holdOffUntil_) { holdOffUntil_ = 0; wsConnect(); dbg::log("[net] reconnecting to brain"); }
-  if (!holdOffUntil_) ws.loop();
+  if (!holdOffUntil_ && !suspended_) ws.loop();
   if (ready_ && millis() - lastStatus_ > 30000) { lastStatus_ = millis(); sendStatus(); }
 }
 
