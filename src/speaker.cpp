@@ -115,7 +115,7 @@ void tone(float hz, uint16_t ms) {
     uint32_t n = min<uint32_t>(512, total - i);
     for (uint32_t k = 0; k < n; k++, i++) {
       float env = i < 320 ? i / 320.0f : i > total - 320 ? (total - i) / 320.0f : 1.0f;
-      piece[k] = (int16_t)(sinf(i * 2 * PI * hz / RATE) * 11000 * env);
+      piece[k] = (int16_t)(sinf(i * 2 * PI * hz / RATE) * 26000 * env);
     }
     while (RING - 1 - avail() < n * 2) vTaskDelay(pdMS_TO_TICKS(5));   // let the audio task drain before adding more
     feed((const uint8_t*)piece, n * 2);

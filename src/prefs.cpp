@@ -67,7 +67,7 @@ void save() {
 }
 
 char deviceKey[65] = "";
-uint8_t volume = 80;
+uint8_t volume = 100;
 
 void loadIdentity() {
   // The identity key binds this device id to this physical unit. It is generated once from hardware randomness and lives in its

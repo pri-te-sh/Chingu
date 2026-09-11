@@ -125,7 +125,7 @@ static void handleSerial() {
       else if (!strcmp(cmd, "setup")) { prefs::forgetWifi(); ESP.restart(); }
       else if (!strcmp(cmd, "unpair")) { prefs::forgetToken(); ESP.restart(); }
       else if (!strcmp(cmd, "factory")) { prefs::factoryReset(); ESP.restart(); }
-      else if (!strcmp(cmd, "vol") && a1) { speaker::setVolume(atof(a1)); Serial.printf("ok volume %s\n", a1); }
+      else if (!strcmp(cmd, "vol") && a1) { float v = constrain(atof(a1), 0.0f, 1.0f); speaker::setVolume(v); prefs::volume = (uint8_t)(v * 100 + 0.5f); prefs::save(); Serial.printf("ok volume %s\n", a1); }
       else if (!strcmp(cmd, "beep")) { speaker::tone(440, a1 ? atoi(a1) : 400); Serial.println("ok beep"); }
       else if (!strcmp(cmd, "apll") && a1) { speaker::reinit(atoi(a1) != 0, 16000); Serial.printf("ok apll %s\n", a1); }
       else if (!strcmp(cmd, "srate") && a1) { speaker::setClock(atoi(a1)); Serial.printf("ok srate %s\n", a1); }
