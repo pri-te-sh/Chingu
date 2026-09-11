@@ -12,6 +12,8 @@ static uint16_t fast_[5]; static uint8_t fastN_ = 0, fastI_ = 0;      // 2 s apa
 static uint16_t slow_[30]; static uint8_t slowN_ = 0, slowI_ = 0;     // 20 s apart -> 10 min window (charge/discharge trend)
 static State state_ = ST_UNKNOWN;
 static bool changed_ = false;
+static uint16_t sag_ = 100;                     // plug/unplug step: I*R of the cell, learned from the fast window (default 0.1 V)
+static uint32_t chargeStart_ = 0; static uint16_t chargeStartMv_ = 0;
 
 static const struct { uint16_t mv; uint8_t pct; } CURVE[] = {          // LiPo open-circuit voltage -> charge, coarse
   {4200, 100}, {4100, 90}, {4000, 78}, {3900, 62}, {3800, 45}, {3700, 25}, {3600, 12}, {3500, 5}, {3400, 2}, {3300, 0}};
@@ -32,8 +34,20 @@ void begin() {
 
 uint16_t millivolts() { return have_ ? (uint16_t)(ema_ + 0.5f) : 0; }
 
+uint16_t ocvMillivolts() {
+  // Under load the terminal reads ~sag/2 below the resting voltage; while charging it reads ~sag/2 above.
+  // Correcting for that keeps the percentage from jumping when USB is (un)plugged.
+  int mv = millivolts(); if (!mv) return 0;
+  if (state_ == ST_BATTERY || state_ == ST_LOW || state_ == ST_CRITICAL) mv += sag_ / 2;
+  else if (state_ == ST_CHARGING) mv -= sag_ / 2;
+  return (uint16_t)constrain(mv, 0, 4300);
+}
+
+int sinceChargeMv() { return chargeStart_ ? (int)millivolts() - (int)chargeStartMv_ : 0; }
+uint32_t chargeMinutes() { return chargeStart_ ? (millis() - chargeStart_) / 60000 : 0; }
+
 uint8_t percent() {
-  uint16_t mv = millivolts();
+  uint16_t mv = ocvMillivolts();
   if (mv >= CURVE[0].mv) return 100;
   for (size_t i = 1; i < sizeof CURVE / sizeof CURVE[0]; i++)
     if (mv >= CURVE[i].mv) {
@@ -45,7 +59,7 @@ uint8_t percent() {
 
 State state() { return state_; }
 const char* stateName() {
-  static const char* N[] = {"unknown", "battery", "charging", "full", "low", "critical"};
+  static const char* N[] = {"unknown", "battery", "charging", "full", "low", "critical", "usb"};
   return N[state_];
 }
 
@@ -57,7 +71,8 @@ int trendMvPerMin() {
 
 static void setState(State s) {
   if (s == state_) return;
-  dbg::log("[bat] %s -> %s (%u mV, %u%%)", stateName(), (const char*[]){"unknown", "battery", "charging", "full", "low", "critical"}[s], millivolts(), percent());
+  dbg::log("[bat] %s -> %s (%u mV, %u%%)", stateName(), (const char*[]){"unknown", "battery", "charging", "full", "low", "critical", "usb"}[s], millivolts(), percent());
+  if (s == ST_CHARGING) { chargeStart_ = millis(); chargeStartMv_ = millivolts(); } else if (s != ST_FULL) chargeStart_ = 0;
   state_ = s; changed_ = true;
 }
 
@@ -75,8 +90,8 @@ void loop() {
   int step = 0;
   if (fastN_ == 5) step = (int)mv - (int)fast_[fastI_];
   fast_[fastI_] = mv; fastI_ = (fastI_ + 1) % 5; if (fastN_ < 5) fastN_++;
-  if (step >= 25 && state_ != ST_CHARGING && state_ != ST_FULL) { setState(ST_CHARGING); fullSince_ = 0; fastN_ = 0; }
-  else if (step <= -25 && (state_ == ST_CHARGING || state_ == ST_FULL || state_ == ST_UNKNOWN)) { setState(mv <= 3300 ? ST_CRITICAL : mv <= 3500 ? ST_LOW : ST_BATTERY); fastN_ = 0; }
+  if (step >= 25 && state_ != ST_CHARGING && state_ != ST_FULL && state_ != ST_USB) { sag_ = constrain(step, 30, 300); setState(ST_CHARGING); fullSince_ = 0; fastN_ = 0; }
+  else if (step <= -25 && (state_ == ST_CHARGING || state_ == ST_FULL || state_ == ST_USB || state_ == ST_UNKNOWN)) { sag_ = constrain(-step, 30, 300); setState(mv <= 3300 ? ST_CRITICAL : mv <= 3500 ? ST_LOW : ST_BATTERY); fastN_ = 0; }
 
   // slow window: one sample per 20 s; the trend settles what a reboot can't see
   if (now - lastSlow_ >= 20000) {
@@ -88,6 +103,7 @@ void loop() {
     if (slowN_ == 30) {
       if ((state_ == ST_BATTERY || state_ == ST_LOW) && tr >= 6) setState(ST_CHARGING);
       else if (state_ == ST_CHARGING && tr <= -6 && mv < 4100) setState(ST_BATTERY);
+      else if (state_ == ST_USB && tr >= 6) setState(ST_CHARGING);
     }
   }
 
@@ -95,7 +111,10 @@ void loop() {
   if (state_ == ST_CHARGING) {
     if (mv >= 4180) { if (!fullSince_) fullSince_ = now; else if (now - fullSince_ > 180000) setState(ST_FULL); }
     else fullSince_ = 0;
+    // a 300 mA charger lifts a 3000 mAh cell by well over 10 mV/h below 4.1 V; flat for an hour = USB power without charge
+    if (chargeMinutes() >= 60 && sinceChargeMv() < 10 && mv < 4100) { State keep = ST_USB; uint32_t cs = chargeStart_; uint16_t cm = chargeStartMv_; setState(keep); chargeStart_ = cs; chargeStartMv_ = cm; }
   }
+  if (state_ == ST_USB && mv >= 4180) setState(ST_FULL);
   if (state_ == ST_FULL && mv < 4050) setState(ST_BATTERY);            // drained a bit: USB must be gone
   if (state_ == ST_BATTERY && mv <= 3500) setState(mv <= 3300 ? ST_CRITICAL : ST_LOW);
   if (state_ == ST_LOW && mv <= 3300) setState(ST_CRITICAL);

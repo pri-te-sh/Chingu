@@ -273,8 +273,8 @@ const pages={home:'HOME',sim:'TALK',log:'HISTORY',memory:'MEMORY',pixels:'PIXELS
 $('#nav').innerHTML=Object.entries(pages).map(([p,l])=>`<button data-p="${p}" onclick="go('${p}')">${l}</button>`).join('');
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmt=s=>s>=3600?Math.floor(s/3600)+'h '+Math.floor(s%3600/60)+'m':s>=60?Math.floor(s/60)+'m '+s%60+'s':s+'s';
-function battCls(s){const st=s.battery_state,p=Number(s.battery_pct);return st==='critical'?'red':st==='low'?'amber':st==='charging'?'cyan':st==='full'?'green':p>50?'green':p>20?'amber':'red'}
-function battTxt(s){const p=s.battery_pct!=null?Math.round(Number(s.battery_pct))+'%':'-';return s.battery_state==='charging'?p+' charging':s.battery_state==='full'?p+' full':s.battery_state==='unknown'?p+' measuring':p}
+function battCls(s){const st=s.battery_state,p=Number(s.battery_pct);return st==='critical'?'red':st==='low'?'amber':st==='charging'?'cyan':st==='full'?'green':st==='usb'?'muted':p>50?'green':p>20?'amber':'red'}
+function battTxt(s){const p=s.battery_pct!=null?Math.round(Number(s.battery_pct))+'%':'-';return s.battery_state==='charging'?p+' charging':s.battery_state==='full'?p+' full':s.battery_state==='usb'?p+' on USB':s.battery_state==='unknown'?p+' measuring':p}
 function battShort(s){return s.battery_pct==null?'':(s.battery_state==='charging'?'charging ':'batt ')+Math.round(Number(s.battery_pct))+'%'}
 const typeName=t=>t==='lite'?'Pixel-Lite':t==='3s'?'Pixel-3S':'Simulator';
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),1600)}

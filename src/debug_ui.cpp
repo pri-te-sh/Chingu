@@ -455,15 +455,17 @@ void DebugUI::drawPower() {
   tft_.fillRect(0, HDR + 2, SCREEN_W, SCREEN_H - HDR - 2, BG);
   char b[48]; uint8_t pct = battery::percent(); battery::State st = battery::state(); uint16_t mv = battery::millivolts();
   bool noBat = mv < 2500;
-  uint16_t c = st == battery::ST_CRITICAL ? RED : st == battery::ST_LOW ? AMBER : st == battery::ST_CHARGING ? CYAN : GREEN;
+  uint16_t c = st == battery::ST_CRITICAL ? RED : st == battery::ST_LOW ? AMBER : st == battery::ST_CHARGING ? CYAN : st == battery::ST_USB ? MUTED : GREEN;
   snprintf(b, sizeof b, "%u%%", pct);
   gauge(66, HDR + 62, 46, noBat ? 0 : pct / 100.0f, c, noBat ? "--" : b, noBat ? "no battery" : st == battery::ST_UNKNOWN ? "measuring" : battery::stateName());
   int x = 130, y = HDR + 14;
   snprintf(b, sizeof b, "%.2f V", mv / 1000.0f); kv(x, y, 178, "Voltage", noBat ? "-" : b, TXT); y += 19;
-  kv(x, y, 178, "State", noBat ? "JP2 empty" : st == battery::ST_UNKNOWN ? "measuring..." : battery::stateName(), noBat ? MUTED : c); y += 19;
-  int tr = battery::trendMvPerMin(); snprintf(b, sizeof b, "%+d mV/min", tr);
-  kv(x, y, 178, "Trend", noBat || st == battery::ST_UNKNOWN ? "-" : b, TXT); y += 19;
-  kv(x, y, 178, "Cell", "3000 mAh LiPo", MUTED);
+  kv(x, y, 178, "State", noBat ? "JP2 empty" : st == battery::ST_UNKNOWN ? "measuring..." : st == battery::ST_USB ? "USB, not charging" : battery::stateName(), noBat ? MUTED : c); y += 19;
+  if (st == battery::ST_CHARGING || st == battery::ST_USB) snprintf(b, sizeof b, "%+d mV in %lu min", battery::sinceChargeMv(), battery::chargeMinutes());
+  else snprintf(b, sizeof b, "%+d mV/min", battery::trendMvPerMin());
+  kv(x, y, 178, st == battery::ST_CHARGING || st == battery::ST_USB ? "Charge" : "Trend", noBat || st == battery::ST_UNKNOWN ? "-" : b, TXT); y += 19;
+  snprintf(b, sizeof b, "%.2f V rest.", battery::ocvMillivolts() / 1000.0f);
+  kv(x, y, 178, "Cell", noBat ? "3000 mAh LiPo" : b, MUTED);
   pill(BTN_BTALK, prefs::batteryTalk ? "Remarks: ON" : "Remarks: OFF", prefs::batteryTalk ? AMBER : CARD, prefs::batteryTalk ? INK : TXT);
   wrap(16, HDR + 140, 288, "USB charges the cell at about 300 mA and stops on its own when full. With remarks on, Pixel says when it gets plugged in, is full, or is hungry.", 1, 3, MUTED);
 }
