@@ -16,6 +16,7 @@ DEFAULTS = {
     "history_turns": 12,
     "tools_enabled": True, "tools_web": True, "web_results": 3, "tool_narration": True,
     "barge_in": True, "barge_rms": 2200, "barge_min_ms": 300,
+    "battery_talk": True,           # Pixel remarks when it gets plugged in / full / hungry
     "mood_colors": {"love": "#FF6AD5", "annoyed": "#FF4A4A", "sad": "#4C8DFF", "thinking": "#4CC9F0",
                     "surprised": "#FFFFFF", "excited": "#FFD23F", "suspicious": "#B388FF",
                     "happy": "-", "curious": "-", "listening": "-", "sleepy": "-", "asleep": "-", "neutral": "-"},

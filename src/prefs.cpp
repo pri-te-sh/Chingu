@@ -38,7 +38,7 @@ void load() {
   getStr("name", name, sizeof name);
   eyeRGB = p.getUInt("eye", eyeRGB);
   autoSleepS = p.getUShort("sleep", autoSleepS);
-  volume = p.getUChar("vol", volume);
+  volume = p.getUChar("vol", volume); batteryTalk = p.getBool("btalk", true);
   getStr("moods", moods, sizeof moods);
   getStr("ssid", wifiSsid, sizeof wifiSsid); getStr("pass", wifiPass, sizeof wifiPass);
   getStr("host", brainHost, sizeof brainHost);
@@ -59,7 +59,7 @@ void load() {
 
 void save() {
   p.begin("pixel", false);
-  p.putString("name", name); p.putUInt("eye", eyeRGB); p.putUShort("sleep", autoSleepS); p.putUChar("vol", volume); p.putString("moods", moods);
+  p.putString("name", name); p.putUInt("eye", eyeRGB); p.putUShort("sleep", autoSleepS); p.putUChar("vol", volume); p.putBool("btalk", batteryTalk); p.putString("moods", moods);
   p.putString("ssid", wifiSsid); p.putString("pass", wifiPass);
   p.putString("host", brainHost); p.putUShort("port", brainPort); p.putBool("tls", brainTls);
   p.putString("token", token);
@@ -68,6 +68,7 @@ void save() {
 
 char deviceKey[65] = "";
 uint8_t volume = 100;
+bool batteryTalk = true;
 
 void loadIdentity() {
   // The identity key binds this device id to this physical unit. It is generated once from hardware randomness and lives in its

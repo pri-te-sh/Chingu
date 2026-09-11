@@ -12,6 +12,7 @@
 #include "prefs.h"
 #include "ota.h"
 #include "speaker.h"
+#include "battery.h"
 
 TFT_eSPI tft;
 Face face(tft);
@@ -130,6 +131,7 @@ static void handleSerial() {
       else if (!strcmp(cmd, "apll") && a1) { speaker::reinit(atoi(a1) != 0, 16000); Serial.printf("ok apll %s\n", a1); }
       else if (!strcmp(cmd, "srate") && a1) { speaker::setClock(atoi(a1)); Serial.printf("ok srate %s\n", a1); }
       else if (!strcmp(cmd, "update")) { ota::Manifest m; bool a = ota::check(m); Serial.printf("fw %s latest %s %s\n", ota::version(), m.version[0] ? m.version : "(none)", a ? "- installing" : "- up to date"); if (a) ota::requestInstall(); }
+      else if (!strcmp(cmd, "bat")) Serial.printf("battery %u mV %u%% %s trend %d mV/min talk %d\n", battery::millivolts(), battery::percent(), battery::stateName(), battery::trendMvPerMin(), prefs::batteryTalk);
       else if (!strcmp(cmd, "id")) Serial.printf("device %s brain %s:%u tls %d paired %d\n", prefs::deviceId(), prefs::brainHost, prefs::brainPort, prefs::brainTls, prefs::hasToken());
       else if (!strcmp(cmd, "verbose")) { dbg::verbose = !dbg::verbose; Serial.printf("verbose %s\n", dbg::verbose ? "on" : "off"); }
       else if (!strcmp(cmd, "net")) Serial.printf("net: %s\n", net::connected() ? "connected" : "not connected");
@@ -155,6 +157,7 @@ void setup() {
   tft.setTouch(calData);
 
   prefs::load();
+  battery::begin();
   ota::begin(); ota::onProgress(drawUpdateProgress);
   speaker::setVolume(prefs::volume / 100.0f);
   face.begin();
@@ -169,6 +172,7 @@ void loop() {
   else drawStateScreen();
   net::loop();
   speaker::loop(); face.setTalk(speaker::level());
+  battery::loop(); if (battery::changed()) net::sendStatusNow();
   ota::loop();
   if (ota::takeInstallRequest()) runInstall();
   handleSerial();

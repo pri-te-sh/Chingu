@@ -3,6 +3,7 @@
 #include "log.h"
 #include "prefs.h"
 #include "ota.h"
+#include "battery.h"
 #include "certs.h"
 #include "speaker.h"
 #include <time.h>
@@ -222,8 +223,12 @@ static void sendStatus() {
   d["type"] = "status"; d["rssi"] = WiFi.RSSI(); d["heap"] = ESP.getFreeHeap(); d["uptime_s"] = millis() / 1000;
   d["ip"] = WiFi.localIP().toString(); d["fw"] = ota::version(); d["build"] = __DATE__ " " __TIME__; d["ota"] = ota::state(); d["expr"] = expressionName(face_->expression());
   d["name"] = prefs::name; d["reset_reason"] = (int)esp_reset_reason(); d["min_heap"] = ESP.getMinFreeHeap();
+  d["battery_mv"] = battery::millivolts(); d["battery_v"] = battery::millivolts() / 1000.0f; d["battery_pct"] = battery::percent();
+  d["battery_state"] = battery::stateName(); d["battery_talk"] = prefs::batteryTalk;
   String s; serializeJson(d, s); ws.sendTXT(s);
 }
+
+void sendStatusNow() { if (ready_) { lastStatus_ = millis(); sendStatus(); } }
 
 void suspend() { suspended_ = true; ready_ = false; ws.disconnect(); dbg::log("[net] brain link suspended"); }
 void resume() { suspended_ = false; wsBegun_ = false; if (wifiUp()) wsConnect(); dbg::log("[net] brain link resumed"); }

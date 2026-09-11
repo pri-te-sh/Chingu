@@ -36,5 +36,6 @@ void sendEnd();
 const Turn& lastTurn();
 void resume();
 bool sendPing();
+void sendStatusNow();                   // push a status message right away (battery state changed)
 uint32_t pongRtt();
 }

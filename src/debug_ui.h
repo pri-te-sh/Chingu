@@ -16,7 +16,7 @@ public:
   void setFps(uint16_t fps) { fps_ = fps; }
 
 private:
-  enum Screen { MENU, NETWORK, INTERNET, PIPELINE, LOG, SYSTEM, PORTAL, SETUP, UPDATE, SOUND };
+  enum Screen { MENU, NETWORK, PIPELINE, LOG, SYSTEM, PORTAL, SETUP, UPDATE, SOUND, POWER };   // Wi-Fi screen includes the reachability test; LOG lives under System
 
   // widget kit
   void header(const char* title, bool back);
@@ -38,7 +38,7 @@ private:
   void show(Screen s);
   void drawMenu();
   void drawNetwork();
-  void drawInternet();
+  void drawNetTest(const Rect& card);   // reachability + brain latency, inside the Wi-Fi screen
   void stepInternet();
   void drawPipeline();
   void drawLog();
@@ -47,6 +47,8 @@ private:
   void drawSetup();
   void drawUpdate();
   void drawSound();
+  void drawPower();
+  void iconBattery(int cx, int cy, uint16_t c, float frac);
   void iconSpeaker(int cx, int cy, uint16_t c);
   bool checked_ = false;   // UPDATE: a manifest check ran since the screen opened
   uint8_t confirm_ = 0;   // SETUP: which destructive action is awaiting its second tap

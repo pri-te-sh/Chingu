@@ -9,6 +9,8 @@ Server -> client
   {"type":"tool",name,args} {"type":"step",text} {"type":"speech_start",sr} + binary PCM16 + {"type":"speech_end"} {"type":"speech_cancel"}
   {"type":"reply",text} {"type":"redeploy",wait_s} {"type":"error",message}
 """
+import zoneinfo
+import datetime
 import asyncio, json, re, time
 from pathlib import Path
 
@@ -16,7 +18,7 @@ import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 
-from . import ambient, auth, bus, config as C, firmware, inference, llm, memory, obs, repo, settings, tools
+from . import battery, ambient, auth, bus, config as C, firmware, inference, llm, memory, obs, repo, settings, tools
 from .chunker import Chunker
 from starlette.middleware.sessions import SessionMiddleware
 from .vad import EnergyVAD
@@ -63,6 +65,7 @@ class Session:
         self.turn_task: asyncio.Task | None = None
         self.speaking_until = 0.0
         self.first_status = False
+        self.batt_prev: str | None = None; self.batt_said: dict = {}       # battery remark policy state (see battery.py)
         self.auth_gen = (pixel.get("household_id"), pixel.get("token_hash"), pixel.get("archived"))   # ownership snapshot; any change revokes this socket
 
     async def still_authorized(self) -> bool:
@@ -497,8 +500,18 @@ async def ws_endpoint(ws: WebSocket):
                     sess.status = {"rssi": _num(data.get("rssi"), -120, 0), "heap": _num(data.get("heap"), 0, 1e9), "uptime_s": _num(data.get("uptime_s"), 0, 1e10),
                                    "ip": _str(data.get("ip"), 45), "fw": _str(data.get("fw"), 24), "build": _str(data.get("build"), 40), "ota": _str(data.get("ota"), 16),
                                    "expr": _str(data.get("expr"), 16), "name": _str(data.get("name"), 40), "battery_v": _num(data.get("battery_v"), 0, 10),
-                                   "reset_reason": _str(data.get("reset_reason"), 8), "fps": _num(data.get("fps"), 0, 1000)}
+                                   "reset_reason": _str(data.get("reset_reason"), 8), "fps": _num(data.get("fps"), 0, 1000),
+                                   "battery_mv": _num(data.get("battery_mv"), 0, 6000), "battery_pct": _num(data.get("battery_pct"), 0, 100),
+                                   "battery_state": _str(data.get("battery_state"), 12), "battery_talk": data.get("battery_talk") is not False}
                     sess.status_at = time.time()
+                    cur_batt = sess.status.get("battery_state")
+                    if not sess.is_sim and cur_batt and cfg.get("battery_talk", True) and sess.status["battery_talk"]:
+                        hour = datetime.datetime.now(zoneinfo.ZoneInfo(cfg.get("timezone") or "UTC")).hour
+                        kind = battery.decide(sess.batt_prev, cur_batt, sess.batt_said, time.time(), hour)
+                        if kind and not (sess.turn_task and not sess.turn_task.done()) and not mic_gated():
+                            log.info("battery.remark", kind=kind, state=cur_batt, pct=sess.status.get("battery_pct"))
+                            asyncio.create_task(run_turn(battery.PROMPTS[kind].format(pct=int(sess.status.get("battery_pct") or 0))))
+                    if cur_batt: sess.batt_prev = cur_batt
                     if not sess.is_sim:
                         await bus.presence_set(device_id, status=sess.status, connected_at=sess.connected_at, busy=sess.busy)
                         if not sess.first_status:

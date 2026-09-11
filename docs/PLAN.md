@@ -115,7 +115,7 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 - [x] Google sign-in 2026-09-10: GCP project `pixel-companion-508203`, consent screen "Pixel Companion" (External, **Testing** — only listed test users; "Pixel" alone is rejected as a Google trademark), web client with redirect `https://pixel.priteshbhavsar.com/auth/callback`; creds in the server `.env`; dev login still allowed (PIXEL_ALLOW_DEV_LOGIN=1) until Google login is confirmed, then set it to 0
 - [x] CI/CD live 2026-09-10: `.github/workflows/deploy.yml` — tests on Postgres/Redis services, then SSH `deploy/up.sh` as `pixel` + HTTPS smoke test (secrets DEPLOY_HOST + DEPLOY_SSH_KEY = `~/.ssh/pixel_deploy`); first green run #34433150311
 - [ ] Nightly `pg_dump` → Backblaze B2; weekly restore test; Uptime Kuma alerts
-- [ ] Telemetry: heartbeat v2 (fw, reset reason, min heap, fps, RSSI, reconnects, audio xruns, battery); device log shipping + crash upload; HEALTH portal page (per Pixel + brain latency percentiles); retention jobs
+- [ ] Telemetry: heartbeat v2 (fw, reset reason, min heap, fps, RSSI, reconnects, audio xruns; battery ✓ 2026-09-10); device log shipping + crash upload; HEALTH portal page (per Pixel + brain latency percentiles); retention jobs
 - [x] Board repointed with `POST /api/pixels/21/brain` (firmware 0.3.2) 2026-09-10 — reconnects once the home router's negative DNS cache (1 h) expires; Modal `pixel-brain` app stopped
 - [x] Board `lite-0365e8` online on the new brain 2026-09-10 23:59 (after the router's negative DNS cache expired); laptop Compose stack stopped (`docker compose up -d` in backend/ brings the dev stack back)
 - [x] Landing page for signed-out visitors (animated face, typewriter, motes, feature tiles; Google-only sign-in, dev login off in prod)
@@ -127,7 +127,9 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 - [ ] 3S: ES8311 mic/speaker via I²S; esp-sr AFE (AEC + NS) → full-duplex barge-in; wake word "Hey Pixel"
 - [ ] 3S: OV2640 camera → presence, face tracking (eyes follow), face recognition, "look at this"
 - [ ] 3S: IMU gestures (pick-up, tap), battery guard (warn 3.55 V, deep-sleep 3.45 V), battery in heartbeat
-- [ ] Pixel-Lite: speaker via DAC (IO26, amp IO4) + INMP441 I²S mic (SCK IO25, WS IO32, SD IO35 — arrives 2026-09-10) with half-duplex gating (no AEC on classic ESP32); wake word via server-side openWakeWord or push-to-talk touch
+- [x] Pixel-Lite speaker (2026-09-10, fw 0.5.4–0.5.6): built-in DAC on IO26 (`I2S_DAC_CHANNEL_LEFT_EN` — RIGHT is GPIO25), **APLL clock required** (default path ran ~3× fast), dedicated audio task on core 0, 24 KB ring (TLS needs the heap), brain paces PCM to real time (0.4 s lead) and applies +8 dB soft-limited gain; Settings → Sound (volume, test tone, say hello)
+- [x] Pixel-Lite battery (2026-09-10, fw 0.5.6): IO34 calibrated ADC ×2, LiPo curve, charging inferred (plug/unplug step ±25 mV in 10 s, else 10-min trend; CHRG pin is not routed, TP4054 can't be controlled); `battery_mv/pct/state/talk` in the heartbeat; Settings → Power; portal shows it; brain remarks on plugged-in / full / low / critical (`battery_talk`, cooldowns, quiet 22–08 except critical)
+- [ ] Pixel-Lite: INMP441 I²S mic (SCK IO25, WS IO32, SD IO35 — arrived 2026-09-10) with half-duplex gating (no AEC on classic ESP32); wake word via server-side openWakeWord or push-to-talk touch
 
 ### P5 — PotBot
 - [ ] XIAO ESP32-C3 node firmware: SHT40, VEML7700, STEMMA soil → readings every 5 min

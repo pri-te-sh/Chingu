@@ -11,6 +11,7 @@ extern char name[24];
 extern uint32_t eyeRGB;          // 0xRRGGBB
 extern uint16_t autoSleepS;
 extern uint8_t volume;                 // speaker volume 0..100 (device-local)
+extern bool batteryTalk;               // Pixel may remark on its battery (full / hungry); reported to the brain
 extern char moods[160];          // "love=FF6AD5,annoyed=FF4A4A,..." ("-" = tint off)
 // provisioning
 extern char wifiSsid[33], wifiPass[65];
