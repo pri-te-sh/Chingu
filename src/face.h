@@ -45,6 +45,7 @@ public:
   void setAutoSleep(uint32_t ms) { autoSleepMs_ = ms; }
   void setEyeColor(uint32_t rgb);                 // base colour 0xRRGGBB
   void setMoodColor(Expression e, uint32_t rgb);   // 0 = no tint for that expression
+  void setTalk(float level) { talk_ = constrain(level, 0.0f, 1.0f); }   // 0 = not talking; >0 opens the mouth with the speech level
   uint32_t moodColor(Expression e) const { return e < EXPR_COUNT ? mood_[e] : 0; }
   bool hitEye(int16_t sx, int16_t sy) const;
   uint32_t takeMaxFrameUs() { uint32_t v = maxFrameUs_; maxFrameUs_ = 0; return v; }
@@ -60,6 +61,7 @@ private:
   TFT_eSPI& tft_;
   TFT_eSprite eyeL_, eyeR_, mouth_;
   FaceParams cur_{}, target_{};
+  float talk_ = 0;
   Expression current_ = EXPR_NEUTRAL, base_ = EXPR_NEUTRAL;
   float baseIntensity_ = 1.0f;
   uint32_t holdUntil_ = 0;

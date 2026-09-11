@@ -4,6 +4,7 @@
 #include "prefs.h"
 #include "ota.h"
 #include "certs.h"
+#include "speaker.h"
 #include <time.h>
 #include <WiFi.h>
 #include <WebServer.h>
@@ -114,7 +115,7 @@ static void onEvent(WStype_t type, uint8_t* payload, size_t len) {
       if (prefs::hasToken()) d["token"] = prefs::token;
       d["device_key"] = prefs::deviceKey;
       JsonObject caps = d["capabilities"].to<JsonObject>();
-      caps["speaker"] = false; caps["mic"] = false; caps["camera"] = false; caps["touch"] = true; caps["display"] = "320x240";
+      caps["speaker"] = true; caps["mic"] = false; caps["camera"] = false; caps["touch"] = true; caps["display"] = "320x240";
       String s; serializeJson(d, s); ws.sendTXT(s);
       break;
     }
@@ -194,8 +195,8 @@ static void onEvent(WStype_t type, uint8_t* payload, size_t len) {
         dbg::log("[net] turn: expr %ums, audio %ums, done %ums", turn_.tExpr, turn_.tFirstAudio, turn_.tReply);
       }
       else if (!strcmp(t, "speech_start")) turn_.audioBytes = 0;
-      else if (!strcmp(t, "speech_end")) { turn_.tSpeechEnd = since(); face_->setExpression(face_->expression(), 1.0f, 1500); }
-      else if (!strcmp(t, "speech_cancel")) { turn_.active = false; }
+      else if (!strcmp(t, "speech_end")) { turn_.tSpeechEnd = since(); speaker::endOfSpeech(); face_->setExpression(face_->expression(), 1.0f, 1500); }
+      else if (!strcmp(t, "speech_cancel")) { turn_.active = false; speaker::flush(); }
       else if (!strcmp(t, "vad")) { if (d["speaking"] | false) face_->setExpression(EXPR_LISTENING, 1.0f, 20000); }
       else if (!strcmp(t, "error")) dbg::log("[net] backend error: %s", d["message"] | "");
       break;
@@ -203,6 +204,7 @@ static void onEvent(WStype_t type, uint8_t* payload, size_t len) {
     case WStype_BIN:
       if (turn_.audioBytes == 0) turn_.tFirstAudio = since();
       turn_.audioBytes += len;
+      speaker::feed(payload, len);
       break;
     default: break;
   }
@@ -226,8 +228,11 @@ static void sendStatus() {
 void suspend() { suspended_ = true; ready_ = false; ws.disconnect(); dbg::log("[net] brain link suspended"); }
 void resume() { suspended_ = false; wsBegun_ = false; if (wifiUp()) wsConnect(); dbg::log("[net] brain link resumed"); }
 
+static void playbackEnded() { if (ready_) ws.sendTXT("{\"type\":\"playback_end\"}"); }
+
 void begin(Face& face, TFT_eSPI& tft) {
   face_ = &face; tft_ = &tft;
+  speaker::begin(); speaker::onPlaybackEnd(playbackEnded);
   ws.onEvent(onEvent);
   ws.setReconnectInterval(3000);
   ws.enableHeartbeat(15000, 3000, 2);

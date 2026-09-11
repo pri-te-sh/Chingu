@@ -11,6 +11,7 @@
 #include "debug_ui.h"
 #include "prefs.h"
 #include "ota.h"
+#include "speaker.h"
 
 TFT_eSPI tft;
 Face face(tft);
@@ -124,6 +125,11 @@ static void handleSerial() {
       else if (!strcmp(cmd, "setup")) { prefs::forgetWifi(); ESP.restart(); }
       else if (!strcmp(cmd, "unpair")) { prefs::forgetToken(); ESP.restart(); }
       else if (!strcmp(cmd, "factory")) { prefs::factoryReset(); ESP.restart(); }
+      else if (!strcmp(cmd, "vol") && a1) { speaker::setVolume(atof(a1)); Serial.printf("ok volume %s\n", a1); }
+      else if (!strcmp(cmd, "beep")) {                                   // 440 Hz for 0.4 s straight into the speaker path
+        static int16_t tone[6400]; for (int i = 0; i < 6400; i++) tone[i] = (int16_t)(sinf(i * 2 * PI * 440 / 16000) * 12000);
+        speaker::feed((uint8_t*)tone, sizeof tone); speaker::endOfSpeech(); Serial.println("ok beep");
+      }
       else if (!strcmp(cmd, "update")) { ota::Manifest m; bool a = ota::check(m); Serial.printf("fw %s latest %s %s\n", ota::version(), m.version[0] ? m.version : "(none)", a ? "- installing" : "- up to date"); if (a) ota::requestInstall(); }
       else if (!strcmp(cmd, "id")) Serial.printf("device %s brain %s:%u tls %d paired %d\n", prefs::deviceId(), prefs::brainHost, prefs::brainPort, prefs::brainTls, prefs::hasToken());
       else if (!strcmp(cmd, "verbose")) { dbg::verbose = !dbg::verbose; Serial.printf("verbose %s\n", dbg::verbose ? "on" : "off"); }
@@ -140,7 +146,7 @@ void setup() {
   Serial.printf("\n[pixel] boot - firmware %s\n", PIXEL_FW_VERSION);
 
   pinMode(PIN_LED_R, OUTPUT); pinMode(PIN_LED_G, OUTPUT); pinMode(PIN_LED_B, OUTPUT); setLed(0, 0, 0);
-  pinMode(PIN_AMP_EN, OUTPUT); digitalWrite(PIN_AMP_EN, HIGH);   // amp off until we have audio
+  pinMode(PIN_AMP_EN, OUTPUT); digitalWrite(PIN_AMP_EN, LOW);    // amp enable (speaker.cpp drives it)
   pinMode(PIN_BOOT_BTN, INPUT_PULLUP);
   pinMode(PIN_TOUCH_IRQ, INPUT);
 
@@ -162,6 +168,7 @@ void loop() {
   else if (net::state() == net::READY) { drawStateScreen(); face.update(); }
   else drawStateScreen();
   net::loop();
+  speaker::loop(); face.setTalk(speaker::level());
   ota::loop();
   if (ota::takeInstallRequest()) runInstall();
   handleSerial();

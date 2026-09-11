@@ -171,6 +171,7 @@ void Face::update() {
   breath_ = sinf(now / period * TWO_PI) * amp;
 
   easeParams(sleeping || current_ == EXPR_SURPRISED ? 0.28f : 0.18f);
+  if (talk_ > 0.02f) { cur_.mouthOpen = max(cur_.mouthOpen, 0.15f + talk_ * 0.7f); cur_.mouthW = max(cur_.mouthW, 34.0f); }   // lips follow the speech level
 
   // mood tint: ease the eye colour toward the current expression's tint (or back to base)
   uint32_t target = mood_[current_] ? mood_[current_] : baseRGB_;
