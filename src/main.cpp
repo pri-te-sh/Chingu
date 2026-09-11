@@ -157,6 +157,7 @@ void setup() {
 
   prefs::load();
   ota::begin(); ota::onProgress(drawUpdateProgress);
+  speaker::setVolume(prefs::volume / 100.0f);
   face.begin();
   prefs::apply(face, tft);
   net::begin(face, tft);

@@ -16,7 +16,7 @@ public:
   void setFps(uint16_t fps) { fps_ = fps; }
 
 private:
-  enum Screen { MENU, NETWORK, INTERNET, PIPELINE, LOG, SYSTEM, PORTAL, SETUP, UPDATE };
+  enum Screen { MENU, NETWORK, INTERNET, PIPELINE, LOG, SYSTEM, PORTAL, SETUP, UPDATE, SOUND };
 
   // widget kit
   void header(const char* title, bool back);
@@ -46,6 +46,8 @@ private:
   void drawPortal();
   void drawSetup();
   void drawUpdate();
+  void drawSound();
+  void iconSpeaker(int cx, int cy, uint16_t c);
   bool checked_ = false;   // UPDATE: a manifest check ran since the screen opened
   uint8_t confirm_ = 0;   // SETUP: which destructive action is awaiting its second tap
   void iconQr(int cx, int cy, uint16_t c);

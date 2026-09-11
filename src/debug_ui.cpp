@@ -4,6 +4,7 @@
 #include "net.h"
 #include "prefs.h"
 #include "ota.h"
+#include "speaker.h"
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <qrcode.h>
@@ -175,6 +176,12 @@ void DebugUI::iconDownload(int cx, int cy, uint16_t c) {
   tft_.fillSmoothRoundRect(cx - 16, cy + 12, 32, 4, 2, c, CARD);
 }
 
+void DebugUI::iconSpeaker(int cx, int cy, uint16_t c) {
+  tft_.fillRect(cx - 16, cy - 6, 8, 12, c);
+  tft_.fillTriangle(cx - 8, cy - 6, cx - 8, cy + 6, cx + 2, cy + 14, c); tft_.fillTriangle(cx - 8, cy - 6, cx + 2, cy - 14, cx + 2, cy + 14, c);
+  tft_.drawSmoothArc(cx + 2, cy, 12, 10, 60, 120, c, CARD, true); tft_.drawSmoothArc(cx + 2, cy, 18, 16, 60, 120, c, CARD, true);
+}
+
 void DebugUI::iconFace(int cx, int cy, uint16_t c) {
   tft_.fillSmoothRoundRect(cx - 18, cy - 12, 12, 16, 4, c, CARD);
   tft_.fillSmoothRoundRect(cx + 6, cy - 12, 12, 16, 4, c, CARD);
@@ -198,11 +205,12 @@ void DebugUI::show(Screen s) {
     case PORTAL:   header("Portal", true); drawPortal(); break;
     case SETUP:    header("Setup", true); confirm_ = 0; drawSetup(); break;
     case UPDATE:   header("Update", true); checked_ = false; drawUpdate(); break;
+    case SOUND:    header("Sound", true); drawSound(); break;
   }
 }
 
 static const struct { const char* label; uint8_t id; } TILES[9] = {
-  {"Network", 1}, {"Internet", 2}, {"Pipeline", 3}, {"Event log", 4}, {"System", 5}, {"Update", 9}, {"Portal", 7}, {"Setup", 8}, {"Face", 6}};
+  {"Network", 1}, {"Internet", 2}, {"Pipeline", 3}, {"Event log", 4}, {"System", 5}, {"Update", 9}, {"Portal", 7}, {"Setup", 8}, {"Sound", 10}};
 static const int NTILES = 9;
 // 3 columns x 3 rows of compact tiles (icon left, label right)
 static DebugUI::Rect tileRect(int i) { return {(int16_t)(8 + (i % 3) * 104), (int16_t)(HDR + 8 + (i / 3) * 64), 96, 56}; }
@@ -221,6 +229,7 @@ void DebugUI::drawMenu() {
       case 7: iconQr(cx, cy, TXT); break;
       case 8: iconGear(cx, cy, MUTED); break;
       case 9: iconDownload(cx, cy, ota::available() ? GREEN : CYAN); break;
+      case 10: iconSpeaker(cx, cy, AMBER); break;
       case 6: iconFace(cx, cy, AMBER); break;
     }
     tft_.setTextDatum(ML_DATUM); tft_.setTextColor(TXT, CARD);
@@ -481,13 +490,30 @@ void DebugUI::drawUpdate() {
   pill(BTN_INSTALL, ota::available() ? "Install" : "Install", ota::available() && !busy ? GREEN : CARD, ota::available() && !busy ? INK : MUTED);
 }
 
+static const DebugUI::Rect BTN_VDOWN{16, HDR + 58, 60, 44};
+static const DebugUI::Rect BTN_VUP{244, HDR + 58, 60, 44};
+static const DebugUI::Rect BTN_TONE{16, SCREEN_H - 52, 136, 40};
+static const DebugUI::Rect BTN_HELLO{168, SCREEN_H - 52, 136, 40};
+
+void DebugUI::drawSound() {
+  tft_.fillRect(0, HDR + 2, SCREEN_W, SCREEN_H - HDR - 2, BG);
+  char b[32]; snprintf(b, sizeof b, "Volume %u%%", prefs::volume);
+  tft_.setTextDatum(TC_DATUM); tft_.setTextColor(TXT, BG); tft_.drawString(b, SCREEN_W / 2, HDR + 14, 4);
+  pill(BTN_VDOWN, "-", CARD, TXT, 4); pill(BTN_VUP, "+", CARD, TXT, 4);
+  hbar(86, HDR + 74, 148, 12, prefs::volume / 100.0f, AMBER);
+  tft_.setTextDatum(TL_DATUM); tft_.setTextColor(MUTED, BG);
+  tft_.drawString(fit(speaker::playing() ? "playing..." : "Speaker on the JP1 connector, amp on IO4, DAC on IO26.", 288, 2), 16, HDR + 116, 2);
+  tft_.drawString(fit(net::connected() ? "Say hello asks the brain for a short spoken reply." : "Say hello needs the brain connection.", 288, 2), 16, HDR + 138, 2);
+  pill(BTN_TONE, "TEST TONE", AMBER, INK); pill(BTN_HELLO, "SAY HELLO", net::connected() ? CYAN : CARD, net::connected() ? INK : MUTED);
+}
+
 // =========================================================== input / refresh
 void DebugUI::touch(int16_t x, int16_t y) {
   if (screen_ != MENU && BACK.has(x, y)) { show(MENU); return; }
   switch (screen_) {
     case MENU:
       for (int i = 0; i < NTILES; i++)
-        if (tileRect(i).has(x, y)) { if (TILES[i].id == 6) exit(); else show(TILES[i].id == 7 ? PORTAL : TILES[i].id == 8 ? SETUP : TILES[i].id == 9 ? UPDATE : (Screen)TILES[i].id); return; }
+        if (tileRect(i).has(x, y)) { if (TILES[i].id == 6) exit(); else show(TILES[i].id == 7 ? PORTAL : TILES[i].id == 8 ? SETUP : TILES[i].id == 9 ? UPDATE : TILES[i].id == 10 ? SOUND : (Screen)TILES[i].id); return; }
       break;
     case INTERNET:
       if (RUN.has(x, y) && !inet_.running) { inet_ = {}; inet_.running = true; inet_.step = 1; drawInternet(); }
@@ -504,6 +530,16 @@ void DebugUI::touch(int16_t x, int16_t y) {
       if (which == 1) prefs::forgetWifi(); else if (which == 2) prefs::forgetToken(); else prefs::factoryReset();
       tft_.fillScreen(BG); tft_.setTextDatum(MC_DATUM); tft_.setTextColor(AMBER, BG); tft_.drawString("restarting...", SCREEN_W / 2, SCREEN_H / 2, 4);
       delay(400); ESP.restart();
+      break;
+    }
+    case SOUND: {
+      if (BTN_VDOWN.has(x, y) || BTN_VUP.has(x, y)) {
+        int v = (int)prefs::volume + (BTN_VUP.has(x, y) ? 10 : -10); prefs::volume = (uint8_t)constrain(v, 0, 100);
+        speaker::setVolume(prefs::volume / 100.0f); prefs::save(); drawSound();
+      } else if (BTN_TONE.has(x, y)) {
+        static int16_t tone[8000]; for (int i = 0; i < 8000; i++) { float env = i < 400 ? i / 400.0f : i > 7600 ? (8000 - i) / 400.0f : 1.0f; tone[i] = (int16_t)(sinf(i * 2 * PI * 523.25f / 16000) * 11000 * env); }
+        speaker::feed((uint8_t*)tone, sizeof tone); speaker::endOfSpeech(); dbg::log("[dbg] test tone"); drawSound();
+      } else if (BTN_HELLO.has(x, y) && net::connected()) { net::sendText("Say hello in one short cheerful sentence so I can hear your voice."); dbg::log("[dbg] say hello"); }
       break;
     }
     case UPDATE:
@@ -531,6 +567,7 @@ void DebugUI::update() {
     case LOG: drawLog(); break;
     case MENU: { static uint32_t last = 0; if (millis() - last > 3000) { last = millis(); drawMenu(); } break; }
     case SYSTEM: { static uint32_t last = 0; if (millis() - last > 2000) { last = millis(); drawSystem(); } break; }
+    case SOUND: { static bool was = false; bool now = speaker::playing(); if (now != was) { was = now; drawSound(); } break; }
     case PIPELINE:
       if (lastPreset_ >= 0) { bool d = net::lastTurn().done; if (!d || !lastTurnDone_) drawPipeline(); lastTurnDone_ = d; }
       break;
