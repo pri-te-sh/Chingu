@@ -20,11 +20,11 @@ void begin() {
   i2s_config_t cfg = {};
   cfg.mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_DAC_BUILT_IN);
   cfg.sample_rate = RATE; cfg.bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT;
-  cfg.channel_format = I2S_CHANNEL_FMT_ONLY_RIGHT;                 // DAC2 = GPIO26 = right channel
+  cfg.channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT;                 // stereo frames (mono is unreliable on classic ESP32 TX); we duplicate L=R
   cfg.communication_format = I2S_COMM_FORMAT_STAND_MSB;
   cfg.intr_alloc_flags = 0; cfg.dma_buf_count = 6; cfg.dma_buf_len = 256; cfg.use_apll = false;
   i2s_driver_install(PORT, &cfg, 0, nullptr);
-  i2s_set_dac_mode(I2S_DAC_CHANNEL_RIGHT_EN);
+  i2s_set_dac_mode(I2S_DAC_CHANNEL_LEFT_EN);                       // IDF: LEFT = DAC channel 2 = GPIO26 (RIGHT would be GPIO25)
   i2s_zero_dma_buffer(PORT);
   dbg::log("[spk] DAC ready on GPIO%d @ %d Hz", PIN_AUDIO_DAC, RATE);
 }
@@ -52,19 +52,20 @@ void flush() {
 }
 
 void loop() {
-  static uint16_t out[256];                       // DAC wants unsigned samples in the high byte; we also apply volume
+  static uint16_t out[512];                       // stereo frames: DAC wants unsigned samples in the high byte; volume applied here
   size_t have = avail();
   if (have >= 4) {
-    size_t n = min(have, sizeof(out)) & ~1u;      // whole samples
+    size_t n = min(have, (size_t)512) & ~1u;      // bytes of mono PCM16 -> n/2 samples -> n uint16 (L,R duplicated)
     float sum = 0;
     for (size_t i = 0; i < n; i += 2) {
       int16_t s = (int16_t)(ring_[tail_] | (ring_[(tail_ + 1) % RING] << 8)); tail_ = (tail_ + 2) % RING;
       float v = s * volume_; sum += v * v;
-      out[i / 2] = (uint16_t)((int32_t)v + 32768);
+      uint16_t u = (uint16_t)((int32_t)v + 32768);
+      out[i] = u; out[i + 1] = u;
     }
     size_t written = 0;
-    i2s_write(PORT, out, n, &written, 20 / portTICK_PERIOD_MS);
-    if (written < n) tail_ = (tail_ + RING - (n - written)) % RING;    // DMA full: rewind the unwritten tail, retry next loop
+    i2s_write(PORT, out, n * 2, &written, 20 / portTICK_PERIOD_MS);
+    if (written < n * 2) tail_ = (tail_ + RING - (n - written / 2)) % RING;    // DMA full: rewind the unwritten tail, retry next loop
     float rms = sqrtf(sum / (n / 2)) / 32768.0f;
     level_ = level_ * 0.6f + min(1.0f, rms * 4.0f) * 0.4f;
   } else {
