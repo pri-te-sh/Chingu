@@ -6,7 +6,8 @@
 namespace speaker {
 static const i2s_port_t PORT = I2S_NUM_0;        // built-in DAC lives on I2S0; the mic will use I2S1
 static const int RATE = 16000;
-static const size_t RING = 32768;                 // ~1 s of audio: absorbs Wi-Fi jitter without adding much latency
+static const size_t RING = 24576;                 // 0.75 s: the brain paces frames to real time with a ~0.4 s lead, so this absorbs Wi-Fi jitter
+                                                  // (kept small on purpose: TLS handshakes need ~50 KB of contiguous heap)
 static uint8_t ring_[RING]; static volatile size_t head_ = 0, tail_ = 0;
 static bool playing_ = false, ending_ = false, endedSent_ = false;
 static float level_ = 0, volume_ = 0.8f;
@@ -76,4 +77,19 @@ void loop() {
 }
 
 void onPlaybackEnd(void (*cb)()) { onEnd_ = cb; }
+
+void tone(float hz, uint16_t ms) {
+  // synthesised in 1 KB pieces straight into the ring (no big static buffers - heap is precious for TLS)
+  int16_t piece[512]; uint32_t total = RATE * ms / 1000, i = 0;
+  while (i < total) {
+    uint32_t n = min<uint32_t>(512, total - i);
+    for (uint32_t k = 0; k < n; k++, i++) {
+      float env = i < 320 ? i / 320.0f : i > total - 320 ? (total - i) / 320.0f : 1.0f;
+      piece[k] = (int16_t)(sinf(i * 2 * PI * hz / RATE) * 11000 * env);
+    }
+    feed((const uint8_t*)piece, n * 2);
+    if (avail() > RING - 2048) loop();          // ring nearly full: drain some to the DAC before continuing
+  }
+  endOfSpeech();
+}
 }

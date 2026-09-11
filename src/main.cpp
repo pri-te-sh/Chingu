@@ -126,10 +126,7 @@ static void handleSerial() {
       else if (!strcmp(cmd, "unpair")) { prefs::forgetToken(); ESP.restart(); }
       else if (!strcmp(cmd, "factory")) { prefs::factoryReset(); ESP.restart(); }
       else if (!strcmp(cmd, "vol") && a1) { speaker::setVolume(atof(a1)); Serial.printf("ok volume %s\n", a1); }
-      else if (!strcmp(cmd, "beep")) {                                   // 440 Hz for 0.4 s straight into the speaker path
-        static int16_t tone[6400]; for (int i = 0; i < 6400; i++) tone[i] = (int16_t)(sinf(i * 2 * PI * 440 / 16000) * 12000);
-        speaker::feed((uint8_t*)tone, sizeof tone); speaker::endOfSpeech(); Serial.println("ok beep");
-      }
+      else if (!strcmp(cmd, "beep")) { speaker::tone(440, 400); Serial.println("ok beep"); }
       else if (!strcmp(cmd, "update")) { ota::Manifest m; bool a = ota::check(m); Serial.printf("fw %s latest %s %s\n", ota::version(), m.version[0] ? m.version : "(none)", a ? "- installing" : "- up to date"); if (a) ota::requestInstall(); }
       else if (!strcmp(cmd, "id")) Serial.printf("device %s brain %s:%u tls %d paired %d\n", prefs::deviceId(), prefs::brainHost, prefs::brainPort, prefs::brainTls, prefs::hasToken());
       else if (!strcmp(cmd, "verbose")) { dbg::verbose = !dbg::verbose; Serial.printf("verbose %s\n", dbg::verbose ? "on" : "off"); }

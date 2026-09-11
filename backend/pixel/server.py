@@ -35,6 +35,7 @@ FLUSH = "\x00FLUSH"     # in-band marker: "the model's pre-tool sentence is comp
 PORTAL_DIR = Path(__file__).resolve().parent / "portal"
 STT_JUNK = {"thank you.", "thank you", "thanks.", "you", "you.", "bye.", "bye", ".", "thank you for watching.", "thanks for watching.", "hmm.", "uh.", "okay.", "so."}
 MIN_UTTERANCE_S, POST_SPEECH_GUARD_S = 0.4, 0.4
+DEVICE_AUDIO_LEAD_S = 0.4              # how far ahead of real-time playback we stream to a physical device (its ring buffer holds ~0.75 s)
 MAX_PENDING_DEVICES = 50               # unclaimed registrations allowed at once (F11); never-claimed ones expire after 7 days
 PAIRING_SESSION_S = 15 * 60            # an unpaired socket is closed after this; the device simply reconnects
 
@@ -146,23 +147,32 @@ async def respond(ws: WebSocket | None, sess: "Session | None", cfg: dict, user_
     # --- speech pipeline: chunks queue up while the LLM keeps streaming; a speaker task synthesises and sends them in order ---
     tts_q: asyncio.Queue = asyncio.Queue()
     last_end = ""
+    pace = bool(sess) and not sess.is_sim                                   # browser simulator can absorb bursts; ESP32 cannot
+    speech_t0 = None; paced_bytes = 0
+    def audio_bytes_sent(extra: int) -> float:
+        return (paced_bytes + extra) / (C.SAMPLE_RATE * 2)
 
     async def _emit(cid: int, text: str):
-        nonlocal speech_started, t_audio, audio_bytes, last_end
+        nonlocal speech_started, t_audio, audio_bytes, last_end, speech_t0, paced_bytes
         if ws: await send_json(ws, type="chunk", id=cid, state="synth")
         pcm = await inference.synthesize(text)
         if not speech_started:
             await send_json(ws, type="speech_start", sr=C.SAMPLE_RATE)
-            speech_started = True; t_audio = time.time() - t0
+            speech_started = True; t_audio = time.time() - t0; speech_t0 = time.time()
             obs.STAGE.labels("first_audio").observe(t_audio)
             if sess: sess.speaking_until = time.time() + 30
         pause = 0 if not last_end else PAUSE_SENTENCE_MS if last_end in ".!?" else PAUSE_CLAUSE_MS if last_end in ",;:" else 0
         if pause:
-            gap = b"\x00" * (C.SAMPLE_RATE * 2 * pause // 1000); audio_bytes += len(gap); await ws.send_bytes(gap)
+            gap = b"\x00" * (C.SAMPLE_RATE * 2 * pause // 1000); audio_bytes += len(gap); paced_bytes += len(gap); await ws.send_bytes(gap)
         await send_json(ws, type="chunk", id=cid, state="audio")
         audio_bytes += len(pcm)
         for i in range(0, len(pcm), C.AUDIO_FRAME_BYTES):
             await ws.send_bytes(pcm[i:i + C.AUDIO_FRAME_BYTES])
+            if pace:                                                    # physical devices have ~0.75 s of buffer: stay ~0.4 s ahead of playback
+                sent_s = audio_bytes_sent(i + C.AUDIO_FRAME_BYTES)
+                ahead = sent_s - (time.time() - (speech_t0 or time.time()))
+                if ahead > DEVICE_AUDIO_LEAD_S: await asyncio.sleep(ahead - DEVICE_AUDIO_LEAD_S)
+        paced_bytes += len(pcm)
         await send_json(ws, type="chunk", id=cid, state="ready", audio_s=round(len(pcm) / 2 / C.SAMPLE_RATE, 2))
         last_end = text.rstrip()[-1:]
 

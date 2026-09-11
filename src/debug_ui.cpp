@@ -537,8 +537,7 @@ void DebugUI::touch(int16_t x, int16_t y) {
         int v = (int)prefs::volume + (BTN_VUP.has(x, y) ? 10 : -10); prefs::volume = (uint8_t)constrain(v, 0, 100);
         speaker::setVolume(prefs::volume / 100.0f); prefs::save(); drawSound();
       } else if (BTN_TONE.has(x, y)) {
-        static int16_t tone[8000]; for (int i = 0; i < 8000; i++) { float env = i < 400 ? i / 400.0f : i > 7600 ? (8000 - i) / 400.0f : 1.0f; tone[i] = (int16_t)(sinf(i * 2 * PI * 523.25f / 16000) * 11000 * env); }
-        speaker::feed((uint8_t*)tone, sizeof tone); speaker::endOfSpeech(); dbg::log("[dbg] test tone"); drawSound();
+        speaker::tone(523.25f, 500); dbg::log("[dbg] test tone"); drawSound();
       } else if (BTN_HELLO.has(x, y) && net::connected()) { net::sendText("Say hello in one short cheerful sentence so I can hear your voice."); dbg::log("[dbg] say hello"); }
       break;
     }
