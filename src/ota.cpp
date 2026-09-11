@@ -89,18 +89,21 @@ static bool doUpdate(const Manifest& m);
 struct UpdateJob { const Manifest* m; volatile bool done; bool ok; };
 static void updateTask(void* arg) {
   UpdateJob* j = (UpdateJob*)arg;
-  net::suspend(); delay(200);                          // from inside the task: its stack is already allocated, so the freed TLS memory stays one contiguous hole
   j->ok = doUpdate(*j->m); j->done = true;
   vTaskDelete(nullptr);
 }
 
 bool update(const Manifest& m) {
-  // TLS + HTTP + SHA-256 + a 2 KB buffer do not fit on the 8 KB Arduino loop stack (stack-canary panic on 0.4.0):
-  // run the download on its own 16 KB task and just wait here. The task closes the brain link itself: creating the task
-  // *after* suspending put its stack in the freed TLS hole and left too little contiguous heap for a new TLS session.
+  // HTTP + SHA-256 + a 2 KB buffer do not fit on the 8 KB Arduino loop stack (stack-canary panic on 0.4.0): run the
+  // download on its own task and just wait here. The brain link is closed first: that frees ~30 KB so the task stack
+  // can be allocated at all (with the link up the largest free block is ~16 KB). The image comes over plain HTTP, so
+  // no TLS session is needed and heap fragmentation does not matter beyond the stack itself.
   if (!m.valid || !net::wifiUp()) return false;
+  net::suspend(); delay(200);
   UpdateJob job{&m, false, false};
-  if (xTaskCreatePinnedToCore(updateTask, "ota", 16384, &job, 1, nullptr, 1) != pdPASS) { state_ = "failed"; return false; }
+  if (xTaskCreatePinnedToCore(updateTask, "ota", 10240, &job, 1, nullptr, 1) != pdPASS) {
+    dbg::log("[ota] could not start the update task (heap %u)", ESP.getFreeHeap()); net::resume(); state_ = "failed"; return false;
+  }
   while (!job.done) delay(50);
   if (!job.ok) net::resume();
   return job.ok;
