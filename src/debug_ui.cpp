@@ -143,8 +143,8 @@ void DebugUI::gauge(int cx, int cy, int r, float frac, uint16_t color, const cha
   tft_.setTextColor(MUTED, BG); tft_.drawString(small, cx, cy + r - 4, 1);
 }
 
-void DebugUI::wrap(int x, int y, int w, const char* text, int font, int maxLines, uint16_t color) {
-  tft_.setTextDatum(TL_DATUM); tft_.setTextColor(color, tft_.readPixel(x, y));
+void DebugUI::wrap(int x, int y, int w, const char* text, int font, int maxLines, uint16_t color, uint16_t bg) {
+  tft_.setTextDatum(TL_DATUM); tft_.setTextColor(color, bg == 0xFFFF ? BG : bg);
   char lineBuf[80]; int lines = 0; const char* p = text;
   while (*p && lines < maxLines) {
     const char* q = p; char trial[80]; size_t len = 0; lineBuf[0] = 0;
@@ -467,7 +467,7 @@ void DebugUI::drawPower() {
   snprintf(b, sizeof b, "%.2f V rest.", battery::ocvMillivolts() / 1000.0f);
   kv(x, y, 178, "Cell", noBat ? "3000 mAh LiPo" : b, MUTED);
   pill(BTN_BTALK, prefs::batteryTalk ? "Remarks: ON" : "Remarks: OFF", prefs::batteryTalk ? AMBER : CARD, prefs::batteryTalk ? INK : TXT);
-  wrap(16, HDR + 140, 288, "USB charges the cell at about 300 mA and stops on its own when full. With remarks on, Pixel says when it gets plugged in, is full, or is hungry.", 1, 3, MUTED);
+  wrap(16, HDR + 140, 288, "Trend: voltage change over the last 10 min (charging reads clearly positive). Remarks on = Pixel says when plugged in, full or hungry.", 1, 3, MUTED);
 }
 
 // =========================================================== Pixel > Portal
@@ -514,7 +514,7 @@ void DebugUI::drawUpdate() {
   else if (!m.version[0]) kv(12, y, 296, "Latest", checked_ ? "no release published yet" : "not checked yet", MUTED);
   else { snprintf(b, sizeof b, "%s%s", m.version, ota::available() ? "  - update available" : "  - you're up to date"); kv(12, y, 296, "Latest", b, ota::available() ? GREEN : TXT); }
   y += 26;
-  if (m.notes[0]) { Rect nc{12, (int16_t)y, 296, 62}; card(nc, CARD); wrap(nc.x + 10, nc.y + 8, nc.w - 20, m.notes, 2, 3, TXT); }
+  if (m.notes[0]) { Rect nc{12, (int16_t)y, 296, 62}; card(nc, CARD); wrap(nc.x + 10, nc.y + 8, nc.w - 20, m.notes, 2, 3, TXT, CARD); }
   else { tft_.setTextDatum(TL_DATUM); tft_.setTextColor(MUTED, BG); wrap(12, y, 296, "Pixel also checks for updates on its own once a day, and the portal can push one to it.", 2, 3, MUTED); }
   bool busy = !strcmp(st, "checking") || !strcmp(st, "downloading");
   pill(BTN_CHECK, busy ? "..." : "Check now", busy ? CARD : AMBER, busy ? MUTED : INK);
@@ -610,7 +610,7 @@ void DebugUI::drawPipeline() {
     if (bub.y + bub.h > SCREEN_H - 2) bub.h = SCREEN_H - 2 - bub.y;
     tft_.fillSmoothRoundRect(bub.x, bub.y, bub.w, bub.h, 10, CARD, BG);
     tft_.fillTriangle(bub.x + 14, bub.y, bub.x + 26, bub.y, bub.x + 20, bub.y - 6, CARD);
-    wrap(bub.x + 10, bub.y + 7, bub.w - 20, t.reply, 2, lines, TXT);
+    wrap(bub.x + 10, bub.y + 7, bub.w - 20, t.reply, 2, lines, TXT, CARD);
   }
 }
 

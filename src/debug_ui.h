@@ -30,7 +30,7 @@ private:
   const char* fit(const char* text, int w, int font);   // truncates with "..." so it never runs off the screen
   void hbar(int x, int y, int w, int h, float frac, uint16_t color);
   void gauge(int cx, int cy, int r, float frac, uint16_t color, const char* big, const char* small);
-  void wrap(int x, int y, int w, const char* text, int font, int maxLines, uint16_t color);
+  void wrap(int x, int y, int w, const char* text, int font, int maxLines, uint16_t color, uint16_t bg = 0xFFFF);   // bg 0xFFFF = screen BG
   void icon(Icon ic, int cx, int cy);
   void iconWifi(int cx, int cy, int rssi, uint16_t off);
   void iconGlobe(int cx, int cy, uint16_t c);
