@@ -338,6 +338,7 @@ async def ws_endpoint(ws: WebSocket):
             else:
                 log.warning("device.bad_token", device=device_id); await ws.close(code=4001, reason="unauthorized"); return
         await repo.touch_pixel(pixel["id"], capabilities=caps, fw_version=hello.get("fw"))
+        pixel = await repo.pixel(pixel["id"])                      # the session must see what the device just declared (speaker, mic, ...)
     if not paired:
         # stay connected, show the code, wait for the owner to claim us in the portal
         code = pixel.get("pairing_code") or repo.new_pairing_code()
