@@ -5,7 +5,7 @@
 namespace speaker {
 void begin();
 void feed(const uint8_t* pcm16, size_t len);   // audio frame from the brain (2 KB, 16 kHz, mono)
-void loop();                                    // push buffered audio to the DAC; call often
+void loop();                                    // main-loop housekeeping (fires the playback_end callback); the DAC is fed by its own task
 void flush();                                   // drop everything queued (interrupt / cancel)
 void endOfSpeech();                             // brain finished sending; playback_end fires when the buffer drains
 bool playing();
