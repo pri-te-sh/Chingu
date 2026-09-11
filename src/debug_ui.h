@@ -16,7 +16,7 @@ public:
   void setFps(uint16_t fps) { fps_ = fps; }
 
 private:
-  enum Screen { MENU, NETWORK, PIPELINE, LOG, SYSTEM, PORTAL, SETUP, UPDATE, SOUND, POWER };   // Wi-Fi screen includes the reachability test; LOG lives under System
+  enum Screen { MENU, NETWORK, INTERNET, PIPELINE, LOG, SYSTEM, PORTAL, SETUP, UPDATE, SOUND, POWER };   // LOG lives under System
 
   // widget kit
   void header(const char* title, bool back);
@@ -38,7 +38,7 @@ private:
   void show(Screen s);
   void drawMenu();
   void drawNetwork();
-  void drawNetTest(const Rect& card);   // reachability + brain latency, inside the Wi-Fi screen
+  void drawInternet();
   void stepInternet();
   void drawPipeline();
   void drawLog();

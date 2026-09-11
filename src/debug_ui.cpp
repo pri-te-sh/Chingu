@@ -27,7 +27,7 @@ static const char* PRESETS[5] = {
 
 static const DebugUI::Rect BACK{6, 5, 44, HDR - 10};
 static const DebugUI::Rect NET_CARD{12, HDR + 112, 296, 62};
-static const DebugUI::Rect RUN{NET_CARD.x + 200, NET_CARD.y + 16, 86, 30};      // Test / Again pill inside the signal card
+static const DebugUI::Rect RUN{212, HDR + 8, 98, 30};
 static const DebugUI::Rect VERBOSE{212, HDR + 6, 98, 26};
 static const DebugUI::Rect REBOOT{212, HDR + 38, 98, 26};
 static const DebugUI::Rect LOGBTN{212, HDR + 70, 98, 26};
@@ -201,6 +201,7 @@ void DebugUI::show(Screen s) {
   switch (s) {
     case MENU:     header(prefs::name, false); drawMenu(); break;
     case NETWORK:  header("Wi-Fi", true); drawNetwork(); break;
+    case INTERNET: header("Internet test", true); inet_ = {}; drawInternet(); break;
     case POWER:    header("Power", true); drawPower(); break;
     case PIPELINE: header("Pipeline test", true); drawPipeline(); break;
     case LOG:      header("Event log", true); lastLogCount_ = -1; drawLog(); break;
@@ -212,9 +213,9 @@ void DebugUI::show(Screen s) {
   }
 }
 
-// ids: 1 Wi-Fi (network + reachability test), 10 Sound, 11 Power, 7 Portal, 9 Update, 5 System (info, log, reboot), 3 Pipeline, 8 Setup, 6 back to the face
+// ids: 1 Wi-Fi, 2 Internet test, 10 Sound, 11 Power, 7 Portal, 9 Update, 5 System (info, event log, reboot), 3 Pipeline, 8 Setup
 static const struct { const char* label; uint8_t id; } TILES[9] = {
-  {"Wi-Fi", 1}, {"Sound", 10}, {"Power", 11}, {"Portal", 7}, {"Update", 9}, {"System", 5}, {"Pipeline", 3}, {"Setup", 8}, {"Face", 6}};
+  {"Wi-Fi", 1}, {"Internet", 2}, {"Sound", 10}, {"Power", 11}, {"Portal", 7}, {"Update", 9}, {"System", 5}, {"Pipeline", 3}, {"Setup", 8}};
 static const int NTILES = 9;
 // 3 columns x 3 rows of compact tiles (icon left, label right)
 static DebugUI::Rect tileRect(int i) { return {(int16_t)(8 + (i % 3) * 104), (int16_t)(HDR + 8 + (i / 3) * 64), 96, 56}; }
@@ -226,6 +227,7 @@ void DebugUI::drawMenu() {
     int cx = r.x + 26, cy = r.y + r.h / 2;
     switch (TILES[i].id) {
       case 1: iconWifi(cx, cy - 6, net::wifiUp() ? WiFi.RSSI() : -100, EDGE); break;
+      case 2: iconGlobe(cx, cy, CYAN); break;
       case 11: iconBattery(cx, cy, battery::state() == battery::ST_CRITICAL ? RED : battery::state() == battery::ST_LOW ? AMBER : battery::state() == battery::ST_CHARGING ? CYAN : GREEN, battery::percent() / 100.0f); break;
       case 3: iconChat(cx, cy, net::connected() ? GREEN : MUTED); break;
       case 4: iconLog(cx, cy, TXT); break;
@@ -258,41 +260,56 @@ void DebugUI::drawNetwork() {
   snprintf(b, sizeof b, "%s:%u", net::backendHost(), net::backendPort());
   kv(12, y, 300, "Brain", b, TXT); y += 19;
   kv(12, y, 300, "Link", net::connected() ? "connected, ready" : up ? "connecting..." : "offline", net::connected() ? GREEN : AMBER);
-  card(NET_CARD, CARD);
-  drawNetTest(NET_CARD);
+  const Rect& sc = NET_CARD; card(sc, CARD);
+  iconWifi(sc.x + 30, sc.y + 24, rssi, EDGE);
+  tft_.setTextDatum(TL_DATUM); tft_.setTextColor(TXT, CARD);
+  snprintf(b, sizeof b, "%d dBm", rssi); tft_.drawString(up ? b : "--", sc.x + 66, sc.y + 8, 4);
+  tft_.setTextColor(MUTED, CARD); tft_.drawString(up ? rssiLabel(rssi) : "no Wi-Fi", sc.x + 66, sc.y + 36, 2);
+  float q = constrain((rssi + 90) / 50.0f, 0.0f, 1.0f);
+  tft_.fillSmoothRoundRect(sc.x + 190, sc.y + 24, 96, 12, 6, SURF, CARD);
+  if (q > 0.05f) tft_.fillSmoothRoundRect(sc.x + 190, sc.y + 24, (int)(96 * q), 12, 6, q > 0.5f ? GREEN : q > 0.3f ? AMBER : RED, SURF);
   tft_.setTextDatum(TL_DATUM); tft_.setTextColor(MUTED, BG);
-  tft_.fillRect(12, NET_CARD.y + NET_CARD.h + 6, 296, 14, BG);
-  tft_.drawString(fit(inet_.step ? "DNS lookup, HTTP fetch, then 5 brain pings." : "Tap Test to check reachability and brain latency.", 296, 1), 12, NET_CARD.y + NET_CARD.h + 8, 1);
+  tft_.drawString("Reachability and latency: Internet test in the menu.", 12, sc.y + sc.h + 8, 1);
 }
 
-void DebugUI::drawNetTest(const Rect& sc) {
-  char b[64];
-  pill(RUN, inet_.running ? "running" : inet_.step ? "Again" : "Test", inet_.running ? SURF : AMBER, inet_.running ? MUTED : INK);
-  if (!inet_.step) {                                  // idle: signal glyph + strength
-    int rssi = net::wifiUp() ? WiFi.RSSI() : -100;
-    iconWifi(sc.x + 30, sc.y + 24, rssi, EDGE);
-    tft_.setTextDatum(TL_DATUM); tft_.setTextColor(TXT, CARD);
-    snprintf(b, sizeof b, "%d dBm", rssi); tft_.drawString(net::wifiUp() ? b : "--", sc.x + 66, sc.y + 10, 4);
-    tft_.setTextColor(MUTED, CARD); tft_.drawString(net::wifiUp() ? rssiLabel(rssi) : "no Wi-Fi", sc.x + 66, sc.y + 38, 2);
-    return;
+void DebugUI::drawInternet() {
+  pill(RUN, inet_.running ? "running" : "Run test", inet_.running ? CARD : AMBER, inet_.running ? MUTED : INK);
+  tft_.setTextDatum(TL_DATUM); tft_.setTextColor(MUTED, BG);
+  tft_.fillRect(12, HDR + 8, 190, 32, BG);
+  tft_.drawString("Reachability + brain latency", 12, HDR + 14, 2);
+
+  struct { const char* name; uint32_t ms; bool have; bool fail; } rows[3] = {
+    {"DNS", inet_.dns, inet_.step > 1, inet_.step > 1 && inet_.dns == 0},
+    {"HTTP", inet_.http, inet_.step > 2, inet_.step > 2 && inet_.httpCode != 204},
+    {"Brain", 0, false, false}};
+  int done = 0, lost = 0; uint32_t sum = 0, mn = 99999, mx = 0;
+  for (int i = 0; i < inet_.pingIdx; i++) {
+    if (inet_.rtt[i] == 0xFFFFFFFF) lost++; else { sum += inet_.rtt[i]; mn = min(mn, inet_.rtt[i]); mx = max(mx, inet_.rtt[i]); done++; }
   }
-  int done = 0, lost = 0; uint32_t sum = 0;
-  for (int i = 0; i < inet_.pingIdx; i++) { if (inet_.rtt[i] == 0xFFFFFFFF) lost++; else { sum += inet_.rtt[i]; done++; } }
-  struct { const char* name; bool have; bool fail; uint32_t ms; } rows[3] = {
-    {"DNS", inet_.step > 1, inet_.step > 1 && inet_.dns == 0, inet_.dns},
-    {"HTTP", inet_.step > 2, inet_.step > 2 && inet_.httpCode != 204, inet_.http},
-    {"Brain", inet_.pingIdx > 0, inet_.pingIdx >= 5 && done == 0, done ? sum / done : 0}};
-  int y = sc.y + 6;
-  for (int i = 0; i < 3; i++) {
-    tft_.fillRect(sc.x + 10, y, 180, 17, CARD);
-    tft_.setTextDatum(TL_DATUM); tft_.setTextColor(MUTED, CARD); tft_.drawString(rows[i].name, sc.x + 10, y, 2);
-    if (!rows[i].have) { tft_.setTextColor(MUTED, CARD); tft_.drawString("...", sc.x + 60, y, 2); }
-    else if (rows[i].fail) { tft_.setTextColor(RED, CARD); tft_.drawString("FAILED", sc.x + 60, y, 2); }
+  rows[2].have = inet_.pingIdx > 0; rows[2].ms = done ? sum / done : 0; rows[2].fail = inet_.pingIdx > 0 && done == 0;
+
+  int y = HDR + 50; char b[48];
+  for (auto& r : rows) {
+    tft_.fillRect(12, y, 296, 30, BG);
+    tft_.setTextDatum(TL_DATUM); tft_.setTextColor(TXT, BG); tft_.drawString(r.name, 12, y + 2, 2);
+    if (!r.have) { tft_.setTextColor(MUTED, BG); tft_.drawString("-", 70, y + 2, 2); hbar(70, y + 20, 238, 6, 0, CARD); }
+    else if (r.fail) { tft_.setTextColor(RED, BG); tft_.drawString("FAILED", 70, y + 2, 2); hbar(70, y + 20, 238, 6, 1, RED); }
     else {
-      if (i == 2) snprintf(b, sizeof b, "%lu ms avg  %d/%d", rows[i].ms, done, inet_.pingIdx); else snprintf(b, sizeof b, "%lu ms", rows[i].ms);
-      tft_.setTextColor(latColor(rows[i].ms), CARD); tft_.drawString(b, sc.x + 60, y, 2);
+      snprintf(b, sizeof b, "%lu ms", r.ms); tft_.setTextColor(latColor(r.ms), BG); tft_.drawString(b, 70, y + 2, 2);
+      hbar(70, y + 20, 238, 6, r.ms / 300.0f, latColor(r.ms));
     }
-    y += 18;
+    y += 34;
+  }
+  // ping sparkline
+  tft_.fillRect(12, y, 296, 40, BG);
+  tft_.setTextDatum(TL_DATUM); tft_.setTextColor(MUTED, BG); tft_.drawString("WS ping x5", 12, y, 1);
+  if (done) { snprintf(b, sizeof b, "min %lu  avg %lu  max %lu  loss %d/5", mn, sum / done, mx, lost); tft_.setTextColor(TXT, BG); tft_.drawString(b, 90, y - 1, 2); }
+  for (int i = 0; i < 5; i++) {
+    int cx = 24 + i * 24, base = y + 34;
+    if (i >= inet_.pingIdx) { tft_.fillSmoothCircle(cx, base - 4, 3, CARD, BG); continue; }
+    if (inet_.rtt[i] == 0xFFFFFFFF) { tft_.drawWideLine(cx - 4, base - 8, cx + 4, base, 2, RED, BG); tft_.drawWideLine(cx - 4, base, cx + 4, base - 8, 2, RED, BG); continue; }
+    int h = constrain((int)(inet_.rtt[i] / 5), 3, 20);
+    tft_.fillSmoothRoundRect(cx - 4, base - h, 8, h, 3, latColor(inet_.rtt[i]), BG);
   }
 }
 
@@ -303,7 +320,7 @@ void DebugUI::stepInternet() {
     bool ok = net::wifiUp() && WiFi.hostByName("connectivitycheck.gstatic.com", ip);
     inet_.dns = ok ? max<uint32_t>(1, millis() - t) : 0;
     dbg::log("[dbg] dns %s %lums", ok ? ip.toString().c_str() : "fail", millis() - t);
-    inet_.step = 2; drawNetTest(NET_CARD); return;
+    inet_.step = 2; drawInternet(); return;
   }
   if (inet_.step == 2) {
     HTTPClient http; uint32_t t = millis();
@@ -311,15 +328,15 @@ void DebugUI::stepInternet() {
     http.begin("http://connectivitycheck.gstatic.com/generate_204");
     inet_.httpCode = http.GET(); inet_.http = millis() - t; http.end();
     dbg::log("[dbg] http %d %lums", inet_.httpCode, inet_.http);
-    inet_.step = 3; inet_.pingIdx = 0; inet_.pingT0 = 0; drawNetTest(NET_CARD); return;
+    inet_.step = 3; inet_.pingIdx = 0; inet_.pingT0 = 0; drawInternet(); return;
   }
   if (inet_.step == 3) {
-    if (inet_.pingIdx >= 5) { inet_.running = false; inet_.step = 4; drawNetTest(NET_CARD); return; }
+    if (inet_.pingIdx >= 5) { inet_.running = false; inet_.step = 4; drawInternet(); return; }
     if (inet_.pingT0 == 0) {
-      if (!net::sendPing()) { inet_.rtt[inet_.pingIdx++] = 0xFFFFFFFF; drawNetTest(NET_CARD); return; }
+      if (!net::sendPing()) { inet_.rtt[inet_.pingIdx++] = 0xFFFFFFFF; drawInternet(); return; }
       inet_.pingT0 = millis();
-    } else if (net::pongRtt()) { inet_.rtt[inet_.pingIdx++] = net::pongRtt(); inet_.pingT0 = 0; drawNetTest(NET_CARD); }
-    else if (millis() - inet_.pingT0 > 1500) { inet_.rtt[inet_.pingIdx++] = 0xFFFFFFFF; inet_.pingT0 = 0; drawNetTest(NET_CARD); }
+    } else if (net::pongRtt()) { inet_.rtt[inet_.pingIdx++] = net::pongRtt(); inet_.pingT0 = 0; drawInternet(); }
+    else if (millis() - inet_.pingT0 > 1500) { inet_.rtt[inet_.pingIdx++] = 0xFFFFFFFF; inet_.pingT0 = 0; drawInternet(); }
   }
 }
 
@@ -533,14 +550,14 @@ void DebugUI::touch(int16_t x, int16_t y) {
         if (tileRect(i).has(x, y)) {
           switch (TILES[i].id) {
             case 6: exit(); return;
-            case 1: show(NETWORK); return;   case 3: show(PIPELINE); return;  case 5: show(SYSTEM); return;
+            case 1: show(NETWORK); return;   case 2: show(INTERNET); return;  case 3: show(PIPELINE); return;  case 5: show(SYSTEM); return;
             case 7: show(PORTAL); return;    case 8: show(SETUP); return;     case 9: show(UPDATE); return;
             case 10: show(SOUND); return;    case 11: show(POWER); return;
           }
         }
       break;
-    case NETWORK:
-      if (RUN.has(x, y) && !inet_.running) { inet_ = {}; inet_.running = true; inet_.step = 1; card(NET_CARD, CARD); drawNetTest(NET_CARD); }
+    case INTERNET:
+      if (RUN.has(x, y) && !inet_.running) { inet_ = {}; inet_.running = true; inet_.step = 1; drawInternet(); }
       break;
     case POWER:
       if (BTN_BTALK.has(x, y)) { prefs::batteryTalk = !prefs::batteryTalk; prefs::save(); net::sendStatusNow(); drawPower(); }
@@ -585,12 +602,12 @@ void DebugUI::touch(int16_t x, int16_t y) {
 
 void DebugUI::update() {
   if (!active_) return;
-  if (screen_ == NETWORK) stepInternet();
+  if (screen_ == INTERNET) stepInternet();
   statusChips();
   if (millis() - lastRefresh_ < 500) return;
   lastRefresh_ = millis();
   switch (screen_) {
-    case NETWORK: if (!inet_.running) { static uint32_t last = 0; if (millis() - last > 2000) { last = millis(); drawNetwork(); } } break;
+    case NETWORK: { static uint32_t last = 0; if (millis() - last > 2000) { last = millis(); drawNetwork(); } break; }
     case LOG: drawLog(); break;
     case MENU: { static uint32_t last = 0; if (millis() - last > 3000) { last = millis(); drawMenu(); } break; }
     case SYSTEM: { static uint32_t last = 0; if (millis() - last > 2000) { last = millis(); drawSystem(); } break; }

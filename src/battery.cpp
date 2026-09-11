@@ -83,9 +83,10 @@ void loop() {
     lastSlow_ = now;
     slow_[slowI_] = mv; slowI_ = (slowI_ + 1) % 30; if (slowN_ < 30) slowN_++;
     int tr = trendMvPerMin() * 10;                                     // mV over the 10 min window
+    if (state_ == ST_UNKNOWN && slowN_ >= 2)                          // ~20 s after boot: provisional verdict from voltage alone
+      setState(mv >= 4150 ? ST_FULL : mv <= 3300 ? ST_CRITICAL : mv <= 3500 ? ST_LOW : ST_BATTERY);
     if (slowN_ == 30) {
-      if (state_ == ST_UNKNOWN) setState(tr >= 4 ? ST_CHARGING : mv >= 4150 && tr > -4 ? ST_FULL : mv <= 3300 ? ST_CRITICAL : mv <= 3500 ? ST_LOW : ST_BATTERY);
-      else if ((state_ == ST_BATTERY || state_ == ST_LOW) && tr >= 6) setState(ST_CHARGING);
+      if ((state_ == ST_BATTERY || state_ == ST_LOW) && tr >= 6) setState(ST_CHARGING);
       else if (state_ == ST_CHARGING && tr <= -6 && mv < 4100) setState(ST_BATTERY);
     }
   }
