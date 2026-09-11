@@ -13,6 +13,7 @@
 #include "ota.h"
 #include "speaker.h"
 #include "battery.h"
+#include "speedtest.h"
 
 TFT_eSPI tft;
 Face face(tft);
@@ -131,6 +132,7 @@ static void handleSerial() {
       else if (!strcmp(cmd, "apll") && a1) { speaker::reinit(atoi(a1) != 0, 16000); Serial.printf("ok apll %s\n", a1); }
       else if (!strcmp(cmd, "srate") && a1) { speaker::setClock(atoi(a1)); Serial.printf("ok srate %s\n", a1); }
       else if (!strcmp(cmd, "update")) { ota::Manifest m; bool a = ota::check(m); Serial.printf("fw %s latest %s %s\n", ota::version(), m.version[0] ? m.version : "(none)", a ? "- installing" : "- up to date"); if (a) ota::requestInstall(); }
+      else if (!strcmp(cmd, "speed")) { net::suspend(); delay(150); uint32_t d = speedtest::download(262144); uint32_t u = speedtest::upload(131072); net::resume(); Serial.printf("speed down %lu kbit/s up %lu kbit/s\n", d, u); }
       else if (!strcmp(cmd, "bat")) Serial.printf("battery %u mV %u%% %s trend %d mV/min talk %d\n", battery::millivolts(), battery::percent(), battery::stateName(), battery::trendMvPerMin(), prefs::batteryTalk);
       else if (!strcmp(cmd, "id")) Serial.printf("device %s brain %s:%u tls %d paired %d\n", prefs::deviceId(), prefs::brainHost, prefs::brainPort, prefs::brainTls, prefs::hasToken());
       else if (!strcmp(cmd, "verbose")) { dbg::verbose = !dbg::verbose; Serial.printf("verbose %s\n", dbg::verbose ? "on" : "off"); }

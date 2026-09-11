@@ -16,7 +16,7 @@ from pathlib import Path
 
 import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 
 from . import battery, ambient, auth, bus, config as C, firmware, inference, llm, memory, obs, repo, settings, tools
 from .chunker import Chunker
@@ -87,6 +87,42 @@ async def _retention_loop():
         try: log.info("retention", **(await repo.retention()))
         except Exception as e: log.warning("retention.failed", error=repr(e))
         await asyncio.sleep(24 * 3600)
+
+
+SPEEDTEST_MAX = 1_048_576
+_ZERO_CHUNK = bytes(16384)
+
+
+async def _speedtest_allowed(request: Request):
+    ip = request.client.host if request.client else "?"
+    if not await bus.registration_allowed(f"speed:{ip}", limit=120, window_s=3600):
+        raise HTTPException(429, "speed test rate limit")
+
+
+@app.get("/api/speedtest/down")
+async def speedtest_down(request: Request, bytes: int = 262144):
+    """Zeros for a device-side download throughput test. Anonymous (devices run it before/without a session), IP rate-limited."""
+    await _speedtest_allowed(request)
+    n = max(1, min(int(bytes), SPEEDTEST_MAX))
+    async def gen():
+        left = n
+        while left > 0:
+            k = min(left, len(_ZERO_CHUNK)); yield _ZERO_CHUNK[:k]; left -= k
+    return StreamingResponse(gen(), media_type="application/octet-stream", headers={"Content-Length": str(n), "Cache-Control": "no-store"})
+
+
+@app.post("/api/speedtest/up")
+async def speedtest_up(request: Request):
+    """Sink for the upload half; the body is discarded. Capped at 1 MB."""
+    await _speedtest_allowed(request)
+    try: declared = int(request.headers.get("content-length") or 0)
+    except ValueError: declared = 0
+    if declared > SPEEDTEST_MAX: raise HTTPException(413, "too large")
+    n = 0
+    async for chunk in request.stream():
+        n += len(chunk)
+        if n > SPEEDTEST_MAX: raise HTTPException(413, "too large")
+    return {"bytes": n}
 
 
 @app.get("/health")

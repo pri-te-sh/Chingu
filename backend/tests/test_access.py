@@ -289,3 +289,14 @@ def test_history_search_is_server_side_and_scoped(client):
         assert len(r2["turns"]) == 1 and sum(d["n"] for d in r2["days"]) == 7
         assert client.get(f"/api/history?device={pb['id']}", cookies=ca).status_code == 404       # bob's pixel is not filterable by alice
     finally: cleanup(client, ha, hb)
+
+
+def test_speedtest_endpoints(client):
+    r = client.get("/api/speedtest/down?bytes=70000")
+    assert r.status_code == 200 and len(r.content) == 70000 and set(r.content) == {0}
+    r = client.get("/api/speedtest/down?bytes=99999999")
+    assert len(r.content) == 1_048_576                      # capped
+    r = client.post("/api/speedtest/up", content=bytes(5000), headers={"Content-Type": "application/octet-stream"})
+    assert r.status_code == 200 and r.json()["bytes"] == 5000
+    r = client.post("/api/speedtest/up", content=bytes(10), headers={"Content-Length": "9999999"})
+    assert r.status_code == 413
