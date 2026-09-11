@@ -1,3 +1,16 @@
+# Plain HTTP stays open for two device paths only: firmware binaries (integrity comes from the SHA-256 in the manifest,
+# which the device receives over its TLS WebSocket) and the speed test. The ESP32 cannot afford a second TLS session
+# next to its brain link (heap), so these go over http://. Everything else redirects to https.
+http://{$PIXEL_DOMAIN} {
+    @plain path /firmware/* /api/speedtest/*
+    handle @plain {
+        reverse_proxy brain:8765
+    }
+    handle {
+        redir https://{host}{uri} 308
+    }
+}
+
 {$PIXEL_DOMAIN} {
     encode zstd gzip
     reverse_proxy brain:8765

@@ -36,6 +36,7 @@ void sendEnd();
 const Turn& lastTurn();
 void resume();
 bool sendPing();
-void sendStatusNow();                   // push a status message right away (battery state changed)
+void sendStatusNow();
+void sendRaw(const char* json);          // one JSON message to the brain (only while ready)                   // push a status message right away (battery state changed)
 uint32_t pongRtt();
 }

@@ -132,6 +132,7 @@ static void onEvent(WStype_t type, uint8_t* payload, size_t len) {
       const char* t = d["type"] | "";
       if (!strcmp(t, "ready")) { ready_ = true; state_ = READY; pairingCode_[0] = 0; dbg::log("[net] brain ready"); ota::markHealthy(); sendStatus(); }
       else if (!strcmp(t, "ota")) { dbg::log("[net] update requested by the portal"); ota::requestInstall(); }
+      else if (!strcmp(t, "ota_manifest")) ota::onManifest(d.as<JsonVariantConst>());
       else if (!strcmp(t, "brain")) {                                   // move to another brain (cutover): host/port/tls, then reconnect
         const char* host = d["host"] | "";
         if (host[0]) {
@@ -228,6 +229,7 @@ static void sendStatus() {
   String s; serializeJson(d, s); ws.sendTXT(s);
 }
 
+void sendRaw(const char* json) { if (ready_) ws.sendTXT(json); }
 void sendStatusNow() { if (ready_) { lastStatus_ = millis(); sendStatus(); } }
 
 void suspend() { suspended_ = true; ready_ = false; ws.disconnect(); dbg::log("[net] brain link suspended"); }

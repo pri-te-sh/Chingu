@@ -1,12 +1,13 @@
 #include "speedtest.h"
 #include "prefs.h"
-#include "certs.h"
+#include "net.h"
 #include "log.h"
-#include <WiFiClientSecure.h>
+#include <WiFiClient.h>
 #include <HTTPClient.h>
+#include <esp_heap_caps.h>
 
 namespace speedtest {
-class ZeroStream : public Stream {                 // an endless supply of zero bytes for the upload body
+class ZeroStream : public Stream {                 // a supply of zero bytes for the upload body
   size_t left_;
 public:
   explicit ZeroStream(size_t n) : left_(n) {}
@@ -17,20 +18,21 @@ public:
   size_t write(uint8_t) override { return 0; }
 };
 
-static bool open(HTTPClient& http, WiFiClientSecure& tls, WiFiClient& plain, const char* path) {
-  char url[192];
-  snprintf(url, sizeof url, "%s://%s:%u%s", prefs::brainTls ? "https" : "http", prefs::brainHost, prefs::brainPort, path);
-  http.setConnectTimeout(8000); http.setTimeout(15000); http.setReuse(true);
-  if (prefs::brainTls) { tls.setCACert(PIXEL_CA_BUNDLE); tls.setHandshakeTimeout(10); return http.begin(tls, url); }
-  return http.begin(plain, url);
+static Result res_; static volatile bool busy_ = false; static size_t downBytes_, upBytes_;
+
+static String url(const char* path) {
+  // plain HTTP on purpose: a second TLS session does not fit next to the brain link on this heap; Caddy keeps /api/speedtest/* open on :80
+  String u = String("http://") + prefs::brainHost;
+  if (!prefs::brainTls && prefs::brainPort != 80) u += String(":") + prefs::brainPort;
+  return u + path;
 }
 
-uint32_t download(size_t bytes) {
-  WiFiClientSecure tls; WiFiClient plain; HTTPClient http;
-  char path[64]; snprintf(path, sizeof path, "/api/speedtest/down?bytes=%u", (unsigned)bytes);
-  if (!open(http, tls, plain, path)) return 0;
+static uint32_t download(size_t bytes, int& err) {
+  HTTPClient http; WiFiClient plain; http.setTimeout(15000);
+  String u = url("/api/speedtest/down?bytes=") + bytes;
+  if (!http.begin(plain, u)) { err = -100; return 0; }
   int code = http.GET();
-  if (code != 200) { dbg::log("[speed] download http %d", code); http.end(); return 0; }
+  if (code != 200) { err = code; dbg::log("[speed] download %d %s", code, http.errorToString(code).c_str()); http.end(); return 0; }
   WiFiClient* s = http.getStreamPtr();
   uint8_t buf[1024]; size_t got = 0; uint32_t t0 = millis(), last = t0;
   while (got < bytes && millis() - last < 8000) {
@@ -41,24 +43,48 @@ uint32_t download(size_t bytes) {
   uint32_t ms = max<uint32_t>(1, millis() - t0);
   http.end();
   dbg::log("[speed] down %u/%u bytes in %lu ms", (unsigned)got, (unsigned)bytes, ms);
-  return got < bytes ? 0 : (uint32_t)((uint64_t)got * 8 / ms);
+  if (got < bytes) { err = -101; return 0; }
+  return (uint32_t)((uint64_t)got * 8 / ms);
 }
 
-uint32_t upload(size_t bytes) {
-  WiFiClientSecure tls; WiFiClient plain; HTTPClient http;
-  if (!open(http, tls, plain, "/api/speedtest/up")) return 0;
+static uint32_t upload(size_t bytes, int& err) {
+  HTTPClient http; WiFiClient plain; http.setTimeout(15000); http.setReuse(true);
+  String u = url("/api/speedtest/up");
+  if (!http.begin(plain, u)) { err = -100; return 0; }
   http.addHeader("Content-Type", "application/octet-stream");
-  ZeroStream warm(1); uint32_t t0 = millis();
-  int code = http.sendRequest("POST", &warm, 1);                     // handshake + one round trip
-  uint32_t overhead = millis() - t0;
-  if (code != 200) { dbg::log("[speed] upload warm-up http %d", code); http.end(); return 0; }
+  ZeroStream warm(1);
+  int code = http.sendRequest("POST", &warm, 1);                     // connect + one round trip, not timed
+  if (code != 200) { err = code; dbg::log("[speed] upload warm-up %d %s", code, http.errorToString(code).c_str()); http.end(); return 0; }
   http.addHeader("Content-Type", "application/octet-stream");
-  ZeroStream body(bytes); t0 = millis();
+  ZeroStream body(bytes); uint32_t t0 = millis();
   code = http.sendRequest("POST", &body, bytes);
-  uint32_t ms = millis() - t0;
+  uint32_t ms = max<uint32_t>(1, millis() - t0);
   http.end();
-  dbg::log("[speed] up %u bytes in %lu ms (warm-up %lu ms) http %d", (unsigned)bytes, ms, overhead, code);
-  if (code != 200) return 0;
-  return (uint32_t)((uint64_t)bytes * 8 / max<uint32_t>(1, ms));    // connection was already warm: this is transfer + one round trip
+  dbg::log("[speed] up %u bytes in %lu ms http %d", (unsigned)bytes, ms, code);
+  if (code != 200) { err = code; return 0; }
+  return (uint32_t)((uint64_t)bytes * 8 / ms);
 }
+
+static void task(void*) {
+  // The brain link is paused for the few seconds this takes: the ESP32's heap is tight and the measurement is cleaner.
+  net::suspend(); delay(200);
+  dbg::log("[speed] start (heap %u, largest block %u)", ESP.getFreeHeap(), heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+  res_.downKbps = download(downBytes_, res_.downErr);
+  res_.upKbps = upload(upBytes_, res_.upErr);
+  net::resume();
+  res_.done = true; busy_ = false;
+  vTaskDelete(nullptr);
+}
+
+bool start(size_t downBytes, size_t upBytes) {
+  if (busy_) return false;
+  res_ = Result(); downBytes_ = downBytes; upBytes_ = upBytes; busy_ = true;
+  if (xTaskCreatePinnedToCore(task, "speed", 8192, nullptr, 1, nullptr, 1) != pdPASS) {   // plain HTTP: no TLS on this stack
+    dbg::log("[speed] task alloc failed (heap %u, largest block %u)", ESP.getFreeHeap(), heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    busy_ = false; res_.done = true; res_.downErr = res_.upErr = -102; return false;
+  }
+  return true;
+}
+bool busy() { return busy_; }
+const Result& result() { return res_; }
 }

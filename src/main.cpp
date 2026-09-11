@@ -14,6 +14,7 @@
 #include "speaker.h"
 #include "battery.h"
 #include "speedtest.h"
+#include <esp_heap_caps.h>
 
 TFT_eSPI tft;
 Face face(tft);
@@ -74,8 +75,8 @@ static void drawUpdateProgress(uint8_t pct, const char* stage) {
 
 // Portal push or the on-device Update screen asked for an install: check, download, reboot (or report failure).
 static void runInstall() {
-  ota::Manifest m;
-  if (!ota::check(m) || !ota::available()) { dbg::log("[ota] nothing to install"); return; }
+  const ota::Manifest& m = ota::latest();
+  if (!ota::available() || !m.valid) { dbg::log("[ota] nothing to install"); return; }
   if (debugUi.active()) debugUi.exit();
   drawUpdateProgress(0, "starting");
   if (!ota::update(m)) {                       // only returns on failure
@@ -131,8 +132,9 @@ static void handleSerial() {
       else if (!strcmp(cmd, "beep")) { speaker::tone(440, a1 ? atoi(a1) : 400); Serial.println("ok beep"); }
       else if (!strcmp(cmd, "apll") && a1) { speaker::reinit(atoi(a1) != 0, 16000); Serial.printf("ok apll %s\n", a1); }
       else if (!strcmp(cmd, "srate") && a1) { speaker::setClock(atoi(a1)); Serial.printf("ok srate %s\n", a1); }
-      else if (!strcmp(cmd, "update")) { ota::Manifest m; bool a = ota::check(m); Serial.printf("fw %s latest %s %s\n", ota::version(), m.version[0] ? m.version : "(none)", a ? "- installing" : "- up to date"); if (a) ota::requestInstall(); }
-      else if (!strcmp(cmd, "speed")) { net::suspend(); delay(150); uint32_t d = speedtest::download(262144); uint32_t u = speedtest::upload(131072); net::resume(); Serial.printf("speed down %lu kbit/s up %lu kbit/s\n", d, u); }
+      else if (!strcmp(cmd, "update")) { ota::requestInstall(); Serial.printf("fw %s - asking the brain for the latest release; installs if newer\n", ota::version()); }
+      else if (!strcmp(cmd, "speed")) { speedtest::start(262144, 131072); while (speedtest::busy()) { net::loop(); delay(50); } const auto& r = speedtest::result(); Serial.printf("speed down %lu kbit/s (err %d) up %lu kbit/s (err %d)\n", r.downKbps, r.downErr, r.upKbps, r.upErr); }
+      else if (!strcmp(cmd, "heap")) Serial.printf("heap free %u largest %u min %u\n", ESP.getFreeHeap(), heap_caps_get_largest_free_block(MALLOC_CAP_8BIT), ESP.getMinFreeHeap());
       else if (!strcmp(cmd, "bat")) Serial.printf("battery %u mV %u%% %s trend %d mV/min talk %d\n", battery::millivolts(), battery::percent(), battery::stateName(), battery::trendMvPerMin(), prefs::batteryTalk);
       else if (!strcmp(cmd, "id")) Serial.printf("device %s brain %s:%u tls %d paired %d\n", prefs::deviceId(), prefs::brainHost, prefs::brainPort, prefs::brainTls, prefs::hasToken());
       else if (!strcmp(cmd, "verbose")) { dbg::verbose = !dbg::verbose; Serial.printf("verbose %s\n", dbg::verbose ? "on" : "off"); }
@@ -158,14 +160,16 @@ void setup() {
   uint16_t calData[5] = { 366, 3573, 257, 3590, 3 };   // vendor calibration for rotation 1
   tft.setTouch(calData);
 
+  Serial.printf("[pixel] heap before sprites: %u free, largest %u\n", ESP.getFreeHeap(), heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
   prefs::load();
   battery::begin();
   ota::begin(); ota::onProgress(drawUpdateProgress);
   speaker::setVolume(prefs::volume / 100.0f);
   face.begin();
   prefs::apply(face, tft);
+  Serial.printf("[pixel] heap after sprites: %u free, largest %u\n", ESP.getFreeHeap(), heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
   net::begin(face, tft);
-  Serial.printf("[pixel] free heap after sprites: %u bytes\n", ESP.getFreeHeap());
+  Serial.printf("[pixel] heap after net/speaker begin: %u free, largest %u\n", ESP.getFreeHeap(), heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
 }
 
 void loop() {

@@ -1,9 +1,11 @@
-// Throughput test against the brain over the same TLS path speech uses. Blocking (seconds); run it from the
-// diagnostics screen only, with the brain link suspended so two TLS contexts never coexist on this heap.
+// Throughput test against the brain over the same TLS path speech uses. Runs on its own 16 KB task (TLS on the
+// loop task overflowed its stack during OTA); the caller suspends the brain link first so two TLS contexts never coexist.
 #pragma once
 #include <Arduino.h>
 
 namespace speedtest {
-uint32_t download(size_t bytes);   // kbit/s, 0 on failure (handshake excluded: timed from first body byte)
-uint32_t upload(size_t bytes);     // kbit/s, 0 on failure (a 1-byte warm-up POST is subtracted to exclude the handshake)
+struct Result { uint32_t downKbps = 0, upKbps = 0; bool done = false; int downErr = 0, upErr = 0; };
+bool start(size_t downBytes, size_t upBytes);   // false if a run is already in progress or the task could not start
+bool busy();
+const Result& result();
 }

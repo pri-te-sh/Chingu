@@ -24,6 +24,7 @@ static uint8_t progress_ = 0;
 static bool available_ = false, pendingValidation_ = false;
 static uint32_t bootMs_ = 0, lastCheck_ = 0;
 static bool installReq_ = false;
+static uint32_t checkSent_ = 0;                                       // millis() when an ota_check went out, 0 = none in flight
 static void (*progressCb_)(uint8_t, const char*) = nullptr;
 static void report(const char* stage) { if (progressCb_) progressCb_(progress_, stage); }
 
@@ -32,8 +33,8 @@ const char* state() { return state_; }
 uint8_t progress() { return progress_; }
 bool available() { return available_; }
 const Manifest& latest() { return latest_; }
-void requestInstall() { installReq_ = true; }
-bool takeInstallRequest() { bool r = installReq_; installReq_ = false; return r; }
+void requestInstall() { installReq_ = true; if (!available_) requestCheck(); }
+bool takeInstallRequest() { if (!installReq_ || checkSent_) return false; installReq_ = false; return available_ && latest_.valid; }
 void onProgress(void (*cb)(uint8_t, const char*)) { progressCb_ = cb; }
 uint32_t lastCheckAge() { return lastCheck_ ? millis() - lastCheck_ : 0; }
 
@@ -43,12 +44,6 @@ static int cmpVersion(const char* a, const char* b) {
   sscanf(a, "%d.%d.%d", &ai[0], &ai[1], &ai[2]); sscanf(b, "%d.%d.%d", &bi[0], &bi[1], &bi[2]);
   for (int i = 0; i < 3; i++) if (ai[i] != bi[i]) return ai[i] < bi[i] ? -1 : 1;
   return 0;
-}
-
-static String manifestUrl() {
-  return String(net::tls() ? "https" : "http") + "://" + net::backendHost() +
-         ((net::backendPort() == 443 || net::backendPort() == 80) ? "" : ":" + String(net::backendPort())) +
-         "/api/firmware/manifest?device_type=" PIXEL_DEVICE_TYPE "&channel=stable&current=" PIXEL_FW_VERSION;
 }
 
 void begin() {
@@ -66,29 +61,26 @@ void markHealthy() {
   dbg::log("[ota] firmware %s confirmed healthy", PIXEL_FW_VERSION);
 }
 
-bool check(Manifest& out) {
-  if (!net::wifiUp()) return false;
-  state_ = "checking";
-  HTTPClient http; WiFiClientSecure sec; WiFiClient plain;
-  sec.setCACert(PIXEL_CA_BUNDLE);
-  http.setTimeout(8000);
-  bool ok = net::tls() ? http.begin(sec, manifestUrl()) : http.begin(plain, manifestUrl());
-  int code = ok ? http.GET() : -1;
-  lastCheck_ = millis();                                              // any attempt counts: failures retry on the daily schedule, not every loop
-  if (code != 200) { http.end(); state_ = "idle"; dbg::log("[ota] manifest http %d", code); return false; }
-  JsonDocument d;
-  if (deserializeJson(d, http.getStream())) { http.end(); state_ = "idle"; return false; }
-  http.end();
-  out = Manifest();
-  if (!d["version"].is<const char*>()) { state_ = "idle"; available_ = false; latest_ = Manifest(); return false; }   // no release published
+bool checking() { return checkSent_ != 0; }
+
+void requestCheck() {
+  if (!net::connected()) return;
+  state_ = "checking"; checkSent_ = millis();
+  net::sendRaw("{\"type\":\"ota_check\"}");
+}
+
+void onManifest(JsonVariantConst d) {
+  checkSent_ = 0; lastCheck_ = millis(); state_ = "idle";
+  if (!d["version"].is<const char*>()) { available_ = false; latest_ = Manifest(); dbg::log("[ota] no release published"); return; }
+  Manifest out;
   strlcpy(out.version, d["version"] | "", sizeof out.version); strlcpy(out.url, d["url"] | "", sizeof out.url);
+  strlcpy(out.httpUrl, d["http_url"] | "", sizeof out.httpUrl);
   strlcpy(out.sha256, d["sha256"] | "", sizeof out.sha256); strlcpy(out.notes, d["notes"] | "", sizeof out.notes);
   out.size = d["size"] | 0; out.valid = out.url[0] && strlen(out.sha256) == 64;
   latest_ = out;
   available_ = out.valid && cmpVersion(out.version, PIXEL_FW_VERSION) > 0;
-  state_ = "idle";
   dbg::log("[ota] latest %s (have %s) %s", out.version, PIXEL_FW_VERSION, available_ ? "- update available" : "- up to date");
-  return available_;
+  if (installReq_ && !available_) installReq_ = false;
 }
 
 static void hex(const uint8_t* in, char* out) { for (int i = 0; i < 32; i++) sprintf(out + i * 2, "%02x", in[i]); out[64] = 0; }
@@ -97,28 +89,31 @@ static bool doUpdate(const Manifest& m);
 struct UpdateJob { const Manifest* m; volatile bool done; bool ok; };
 static void updateTask(void* arg) {
   UpdateJob* j = (UpdateJob*)arg;
+  net::suspend(); delay(200);                          // from inside the task: its stack is already allocated, so the freed TLS memory stays one contiguous hole
   j->ok = doUpdate(*j->m); j->done = true;
   vTaskDelete(nullptr);
 }
 
 bool update(const Manifest& m) {
   // TLS + HTTP + SHA-256 + a 2 KB buffer do not fit on the 8 KB Arduino loop stack (stack-canary panic on 0.4.0):
-  // run the download on its own 16 KB task and just wait here. The brain link is closed first to free its TLS memory.
+  // run the download on its own 16 KB task and just wait here. The task closes the brain link itself: creating the task
+  // *after* suspending put its stack in the freed TLS hole and left too little contiguous heap for a new TLS session.
   if (!m.valid || !net::wifiUp()) return false;
-  net::suspend(); delay(200);
   UpdateJob job{&m, false, false};
-  if (xTaskCreatePinnedToCore(updateTask, "ota", 16384, &job, 1, nullptr, 1) != pdPASS) { net::resume(); state_ = "failed"; return false; }
+  if (xTaskCreatePinnedToCore(updateTask, "ota", 16384, &job, 1, nullptr, 1) != pdPASS) { state_ = "failed"; return false; }
   while (!job.done) delay(50);
   if (!job.ok) net::resume();
   return job.ok;
 }
 
 static bool doUpdate(const Manifest& m) {
-  dbg::log("[ota] downloading %s (%u bytes)", m.url, m.size);
+  const char* url = m.httpUrl[0] ? m.httpUrl : m.url;              // plain HTTP when offered: the sha256 below is the integrity check
+  dbg::log("[ota] downloading %s (%u bytes)", url, m.size);
   state_ = "downloading"; progress_ = 0; report("connecting");
   HTTPClient http; WiFiClientSecure sec; WiFiClient plain;
-  sec.setCACert(PIXEL_CA_BUNDLE); http.setTimeout(15000);
-  bool ok = String(m.url).startsWith("https") ? http.begin(sec, m.url) : http.begin(plain, m.url);
+  http.setTimeout(15000);
+  bool ok;
+  if (String(url).startsWith("https")) { sec.setCACert(PIXEL_CA_BUNDLE); ok = http.begin(sec, url); } else ok = http.begin(plain, url);
   int code = ok ? http.GET() : -1;
   if (code != 200) { http.end(); state_ = "failed"; dbg::log("[ota] download http %d", code); return false; }
   int len = http.getSize();
@@ -164,8 +159,7 @@ void loop() {
     pendingValidation_ = false;
   }
   // daily check once online (first one 90 s after boot)
-  if (net::connected() && (lastCheck_ == 0 ? millis() - bootMs_ > 90000 : millis() - lastCheck_ > 86400000UL)) {
-    Manifest m; check(m);
-  }
+  if (checkSent_ && millis() - checkSent_ > 10000) { checkSent_ = 0; lastCheck_ = millis(); state_ = "idle"; installReq_ = false; dbg::log("[ota] manifest request timed out"); }
+  if (net::connected() && !checkSent_ && (lastCheck_ == 0 ? millis() - bootMs_ > 90000 : millis() - lastCheck_ > 86400000UL)) requestCheck();
 }
 }

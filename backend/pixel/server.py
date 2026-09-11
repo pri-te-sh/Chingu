@@ -528,6 +528,16 @@ async def ws_endpoint(ws: WebSocket):
             elif msg.get("text") is not None:
                 data = json.loads(msg["text"]); t = data.get("type")
                 if t == "ping": await send_json(ws, type="pong", t=time.time())
+                elif t == "ota_check":
+                    # devices ask over the socket they already hold: a second TLS session for the manifest does not fit their heap
+                    rel = await firmware.latest(device_type, str(data.get("channel") or "stable")[:16])
+                    if not rel: await send_json(ws, type="ota_manifest", version=None)
+                    else:
+                        base = firmware.PUBLIC_URL or str(ws.base_url).rstrip("/").replace("wss://", "https://").replace("ws://", "http://")
+                        url = f"{base}/firmware/{rel['device_type']}/{rel['channel']}/{rel['version']}.bin"
+                        http_url = "http://" + url.split("://", 1)[1]                # binary over plain HTTP; sha256 below guards it
+                        await send_json(ws, type="ota_manifest", version=rel["version"], sha256=rel["sha256"], size=rel["size"],
+                                        notes=rel.get("notes") or "", url=url, http_url=http_url)
                 elif t == "status":
                     def _num(v, lo, hi):
                         try: f = float(v); return f if lo <= f <= hi else None

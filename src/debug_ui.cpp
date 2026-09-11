@@ -370,13 +370,13 @@ void DebugUI::drawSpeed() {
     {"DNS", speed_.step > 1, speed_.step > 1 && speed_.dns == 0, false, speed_.dns, speed_.dns / 300.0f},
     {"HTTP", speed_.step > 2, speed_.step > 2 && speed_.httpCode != 204, false, speed_.http, speed_.http / 600.0f},
     {"Brain ping", speed_.pingIdx > 0, speed_.pingIdx >= 5 && done == 0, false, done ? sum / done : 0, (done ? sum / done : 0) / 300.0f},
-    {"Download", speed_.step > 4, speed_.step > 4 && speed_.downFail, true, speed_.downKbps, speed_.downKbps / 8000.0f},
+    {"Download", speed_.step > 5, speed_.step > 5 && speed_.downFail, true, speed_.downKbps, speed_.downKbps / 8000.0f},
     {"Upload", speed_.step > 5, speed_.step > 5 && speed_.upFail, true, speed_.upKbps, speed_.upKbps / 4000.0f}};
   int y = top + 2; char b[40];
   for (int i = 0; i < 5; i++) {
     const Row& r = rows[i];
     tft_.setTextColor(MUTED, BG); tft_.drawString(r.name, 12, y, 2);
-    int running = speed_.running && ((i == 0 && speed_.step == 1) || (i == 1 && speed_.step == 2) || (i == 2 && speed_.step == 3) || (i == 3 && speed_.step == 4) || (i == 4 && speed_.step == 5));
+    int running = speed_.running && ((i == 0 && speed_.step == 1) || (i == 1 && speed_.step == 2) || (i == 2 && speed_.step == 3) || (i == 3 && (speed_.step == 4 || speed_.step == 5)) || (i == 4 && speed_.step == 5));
     if (!r.have) { tft_.setTextColor(running ? AMBER : EDGE, BG); tft_.drawString(running ? "..." : "-", 100, y, 2); hbar(200, y + 5, 108, 6, 0, CARD); }
     else if (r.fail) { tft_.setTextColor(RED, BG); tft_.drawString("FAILED", 100, y, 2); hbar(200, y + 5, 108, 6, 1, RED); }
     else {
@@ -419,13 +419,12 @@ void DebugUI::stepSpeed() {
       else if (millis() - speed_.pingT0 > 1500) { speed_.rtt[speed_.pingIdx++] = 0xFFFFFFFF; speed_.pingT0 = 0; drawSpeed(); }
       return;
     case 4:
-      net::suspend();                                   // free the brain's TLS context: the test needs the heap
-      delay(150);
-      speed_.downKbps = speedtest::download(262144); speed_.downFail = speed_.downKbps == 0;
+      speedtest::start(262144, 131072);                 // the worker suspends/resumes the brain link itself
       speed_.step = 5; drawSpeed(); return;
     case 5:
-      speed_.upKbps = speedtest::upload(131072); speed_.upFail = speed_.upKbps == 0;
-      net::resume();
+      if (speedtest::busy()) return;
+      { const speedtest::Result& r = speedtest::result();
+        speed_.downKbps = r.downKbps; speed_.downFail = r.downKbps == 0; speed_.upKbps = r.upKbps; speed_.upFail = r.upKbps == 0; }
       speed_.step = 6; speed_.running = false; drawSpeed(); return;
     default: speed_.running = false; return;
   }
@@ -679,10 +678,7 @@ void DebugUI::touch(int16_t x, int16_t y) {
       if (BTN_BTALK.has(x, y)) { prefs::batteryTalk = !prefs::batteryTalk; prefs::save(); net::sendStatusNow(); drawPower(); }
       break;
     case UPDATE:
-      if (BTN_CHECK.has(x, y) && strcmp(ota::state(), "downloading")) {
-        pill(BTN_CHECK, "checking...", CARD, MUTED);
-        ota::Manifest m; ota::check(m); checked_ = true; drawUpdate();
-      } else if (BTN_INSTALL.has(x, y) && ota::available()) { ota::requestInstall(); exit(); }   // main loop draws the progress screen
+      if (BTN_CHECK.has(x, y) && strcmp(ota::state(), "downloading")) { ota::requestCheck(); checked_ = true; drawUpdate(); } else if (BTN_INSTALL.has(x, y) && ota::available()) { ota::requestInstall(); exit(); }   // main loop draws the progress screen
       break;
     case SYSTEM:
       if (VERBOSE.has(x, y)) { dbg::verbose = !dbg::verbose; dbg::log("[dbg] verbose %s", dbg::verbose ? "on" : "off"); drawSystem(); }
@@ -706,6 +702,7 @@ void DebugUI::update() {
     case LOG: drawLog(); break;
     case MENU: case CONNECTIVITY: case PIXEL: case DIAGNOSTICS: { if (tick2s) { int n; const Tile* t = tilesFor(screen_, n); drawTiles(t, n); } break; }
     case SYSTEM: if (tick2s) drawSystem(); break;
+    case UPDATE: { static bool was = false; bool now = ota::checking(); if (now != was) { was = now; drawUpdate(); } break; }
     case POWER: if (tick2s) drawPower(); break;
     case SOUND: { static bool was = false; bool now = speaker::playing(); if (now != was) { was = now; drawSound(); } break; }
     case PIPELINE:
