@@ -18,6 +18,7 @@ static volatile float level_ = 0; static float volume_ = 0.8f;
 static volatile uint32_t lastData_ = 0;
 static void (*onEnd_)() = nullptr;
 static bool droppedThisTurn_ = false;
+static volatile uint32_t playedBytes_ = 0, playStart_ = 0;
 
 static size_t avail() { return (head_ + RING - tail_) % RING; }
 
@@ -41,33 +42,44 @@ static void audioTask(void*) {
       }
       size_t written = 0;
       i2s_write(PORT, out, n * 2, &written, portMAX_DELAY);   // blocks until DMA takes it: natural pacing at 16 kHz
+      playedBytes_ += n;
       float rms = sqrtf(sum / (n / 2)) / 32768.0f;
       level_ = level_ * 0.6f + min(1.0f, rms * 4.0f) * 0.4f;
     } else {
       level_ *= 0.7f;
       if (playing_ && (ending_ || millis() - lastData_ > 1500)) {   // drained and the brain is done (or went quiet)
         playing_ = false; level_ = 0; ending_ = false; endPending_ = true;
+        uint32_t ms = millis() - playStart_;
+        dbg::log("[spk] played %u samples in %u ms (%.0f Hz effective)", (unsigned)(playedBytes_ / 2), (unsigned)ms, ms ? playedBytes_ / 2 * 1000.0f / ms : 0.0f);
       }
       vTaskDelay(pdMS_TO_TICKS(4));
     }
   }
 }
 
-void begin() {
+static bool apll_ = true; static uint32_t clk_ = RATE;   // APLL is required: the PLL_D2 divider path runs the built-in-DAC clock ~3x too fast on IDF 4.4
+static void install() {
   i2s_config_t cfg = {};
   cfg.mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_DAC_BUILT_IN);
-  cfg.sample_rate = RATE; cfg.bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT;
+  cfg.sample_rate = clk_; cfg.bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT;
   cfg.channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT;                 // stereo frames (mono TX is unreliable on classic ESP32)
   cfg.communication_format = I2S_COMM_FORMAT_STAND_MSB;
-  cfg.intr_alloc_flags = 0; cfg.dma_buf_count = 8; cfg.dma_buf_len = 256; cfg.use_apll = false;   // 8 KB DMA = 128 ms
+  cfg.intr_alloc_flags = 0; cfg.dma_buf_count = 8; cfg.dma_buf_len = 256; cfg.use_apll = apll_;   // 8 KB DMA = 128 ms
   cfg.tx_desc_auto_clear = true;                                   // underrun -> silence, not a repeated stale buffer
   i2s_driver_install(PORT, &cfg, 0, nullptr);
   i2s_set_dac_mode(I2S_DAC_CHANNEL_LEFT_EN);                       // IDF: LEFT = DAC channel 2 = GPIO26 (RIGHT would be GPIO25)
   i2s_zero_dma_buffer(PORT);
-  xTaskCreatePinnedToCore(audioTask, "audio", 4096, nullptr, 3, nullptr, 0);
-  dbg::log("[spk] DAC ready on GPIO%d @ %d Hz (audio task on core 0)", PIN_AUDIO_DAC, RATE);
+  dbg::log("[spk] DAC ready on GPIO%d @ %u Hz apll=%d (driver clk %.0f Hz)", PIN_AUDIO_DAC, (unsigned)clk_, apll_, i2s_get_clk(PORT));
 }
 
+void begin() {
+  install();
+  xTaskCreatePinnedToCore(audioTask, "audio", 4096, nullptr, 3, nullptr, 0);
+}
+
+void reinit(bool apll, uint32_t hz) { apll_ = apll; clk_ = hz; i2s_driver_uninstall(PORT); install(); }
+
+void setClock(uint32_t hz) { i2s_set_sample_rates(PORT, hz); dbg::log("[spk] clock -> %u Hz (driver reports %.0f)", (unsigned)hz, i2s_get_clk(PORT)); }
 void setVolume(float v) { volume_ = constrain(v, 0.0f, 1.0f); }
 bool playing() { return playing_; }
 float level() { return level_; }
@@ -82,7 +94,7 @@ void feed(const uint8_t* pcm, size_t len) {
   size_t h = head_;
   for (size_t i = 0; i < len; i++) { ring_[h] = pcm[i]; h = (h + 1) % RING; }
   head_ = h;                                       // publish once, after the bytes are in place
-  if (!playing_) { playing_ = true; digitalWrite(PIN_AMP_EN, LOW); }
+  if (!playing_) { playing_ = true; playedBytes_ = 0; playStart_ = millis(); digitalWrite(PIN_AMP_EN, LOW); }
 }
 
 void endOfSpeech() { ending_ = true; droppedThisTurn_ = false; }

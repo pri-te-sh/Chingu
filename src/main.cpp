@@ -126,7 +126,9 @@ static void handleSerial() {
       else if (!strcmp(cmd, "unpair")) { prefs::forgetToken(); ESP.restart(); }
       else if (!strcmp(cmd, "factory")) { prefs::factoryReset(); ESP.restart(); }
       else if (!strcmp(cmd, "vol") && a1) { speaker::setVolume(atof(a1)); Serial.printf("ok volume %s\n", a1); }
-      else if (!strcmp(cmd, "beep")) { speaker::tone(440, 400); Serial.println("ok beep"); }
+      else if (!strcmp(cmd, "beep")) { speaker::tone(440, a1 ? atoi(a1) : 400); Serial.println("ok beep"); }
+      else if (!strcmp(cmd, "apll") && a1) { speaker::reinit(atoi(a1) != 0, 16000); Serial.printf("ok apll %s\n", a1); }
+      else if (!strcmp(cmd, "srate") && a1) { speaker::setClock(atoi(a1)); Serial.printf("ok srate %s\n", a1); }
       else if (!strcmp(cmd, "update")) { ota::Manifest m; bool a = ota::check(m); Serial.printf("fw %s latest %s %s\n", ota::version(), m.version[0] ? m.version : "(none)", a ? "- installing" : "- up to date"); if (a) ota::requestInstall(); }
       else if (!strcmp(cmd, "id")) Serial.printf("device %s brain %s:%u tls %d paired %d\n", prefs::deviceId(), prefs::brainHost, prefs::brainPort, prefs::brainTls, prefs::hasToken());
       else if (!strcmp(cmd, "verbose")) { dbg::verbose = !dbg::verbose; Serial.printf("verbose %s\n", dbg::verbose ? "on" : "off"); }

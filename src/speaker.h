@@ -13,4 +13,6 @@ float level();                                  // 0..1 recent loudness, drives 
 void setVolume(float v);                        // 0..1
 void onPlaybackEnd(void (*cb)());               // called once when the queue drains after endOfSpeech()
 void tone(float hz, uint16_t ms);              // test tone, generated on the fly
+void setClock(uint32_t hz);
+void reinit(bool apll, uint32_t hz);            // diagnostic: reinstall the I2S driver with/without APLL                     // diagnostic: re-program the I2S clock (the DAC path runs fast on IDF 4.4)
 }
