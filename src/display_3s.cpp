@@ -15,7 +15,7 @@ static bool ok_ = false;
 static uint16_t* portrait_ = nullptr;         // 320x480 rotated copy for the panel (PSRAM)
 static bool flip_ = false;                    // false: USB-side down when held landscape one way; 'flip' serial command swaps 180°
 static uint32_t flushMs_ = 0;
-static bool uiOn_ = false;
+static bool uiOn_ = false, dirty_ = true; static uint32_t lastFlush_ = 0;
 
 // --- TCA9554 I/O expander (0x20): the panel's reset line hangs off EXIO1 ---
 static void tcaWrite(uint8_t reg, uint8_t v) { Wire.beginTransmission(0x20); Wire.write(reg); Wire.write(v); Wire.endTransmission(); }
@@ -51,14 +51,27 @@ TFT_eSPI& ui() { return uiSpr_; }
 
 void flush() {
   if (!ok_ || !portrait_) return;
+  uint32_t now = millis();
+  if (uiOn_) { if (now - lastFlush_ < 100) return; }        // settings/status screens: 10 Hz is plenty
+  else if (!dirty_) return;                                 // face: only when a frame was rendered
+  dirty_ = false; lastFlush_ = now;
   uint32_t t0 = millis();
   if (uiOn_) uiSpr_.pushToSprite(&frame_, UI_X, UI_Y);
   const uint16_t* src = (const uint16_t*)frame_.getPointer();
-  // landscape (x: 0..479, y: 0..319) -> portrait panel (px: 0..319, py: 0..479). 8-row blocks keep PSRAM reads sequential.
+  // landscape (x: 0..479, y: 0..319) -> portrait panel (px: 0..319, py: 0..479). Eight source rows at a time so each
+  // destination column gets four aligned 32-bit writes (pairs of vertically adjacent pixels are adjacent in portrait).
   for (int y0 = 0; y0 < SCREEN_H; y0 += 8) {
+    const uint16_t* r0 = src + y0 * SCREEN_W;
     for (int x = 0; x < SCREEN_W; x++) {
-      if (!flip_) { uint16_t* d = portrait_ + x * 320 + (319 - y0 - 7); for (int k = 7; k >= 0; k--) *d++ = src[(y0 + k) * SCREEN_W + x]; }
-      else        { uint16_t* d = portrait_ + (479 - x) * 320 + y0;     for (int k = 0; k < 8; k++)  *d++ = src[(y0 + k) * SCREEN_W + x]; }
+      uint32_t a = r0[x], b = r0[SCREEN_W + x], c = r0[2 * SCREEN_W + x], d = r0[3 * SCREEN_W + x];
+      uint32_t e = r0[4 * SCREEN_W + x], f = r0[5 * SCREEN_W + x], g = r0[6 * SCREEN_W + x], h = r0[7 * SCREEN_W + x];
+      if (!flip_) {                                           // px = 319 - y  (descending): word k holds rows (y+1, y)
+        uint32_t* dst = (uint32_t*)(portrait_ + x * 320 + (312 - y0));
+        dst[0] = h | (g << 16); dst[1] = f | (e << 16); dst[2] = d | (c << 16); dst[3] = b | (a << 16);
+      } else {                                                // px = y (ascending), py = 479 - x
+        uint32_t* dst = (uint32_t*)(portrait_ + (479 - x) * 320 + y0);
+        dst[0] = a | (b << 16); dst[1] = c | (d << 16); dst[2] = e | (f << 16); dst[3] = g | (h << 16);
+      }
     }
   }
   panel_->draw16bitBeRGBBitmap(0, 0, portrait_, 320, 480);   // TFT_eSPI sprites hold big-endian RGB565 (ready for SPI); don't swap again
@@ -88,10 +101,10 @@ bool touch(uint16_t& x, uint16_t& y) {
 
 void uiViewport(bool on) {
   if (on && !uiOn_) frame_.fillSprite(TFT_BLACK);   // black margins around the UI layer
-  uiOn_ = on;
+  uiOn_ = on; dirty_ = true;
 }
 
-void blit(TFT_eSprite& s, int32_t x, int32_t y) { s.pushToSprite(&frame_, x, y); }
+void blit(TFT_eSprite& s, int32_t x, int32_t y) { s.pushToSprite(&frame_, x, y); dirty_ = true; }
 
 void selfTest(int mode) {
   static bool bl = true;

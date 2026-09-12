@@ -10,7 +10,7 @@
 namespace speaker {
 static const i2s_port_t PORT = I2S_NUM_0;
 static const int RATE = 16000;
-static const size_t RING = 32768;                 // 1 s; heap is plentiful on the S3
+static const size_t RING = 65536;                 // 2 s: the brain streams ~1.2 s ahead, the rest absorbs main-loop stalls (display push)
 static uint8_t ring_[RING]; static volatile size_t head_ = 0, tail_ = 0;
 static volatile bool playing_ = false, ending_ = false, flushReq_ = false, endPending_ = false;
 static volatile float level_ = 0; static float volume_ = 0.8f;
@@ -18,7 +18,7 @@ static volatile uint32_t lastData_ = 0;
 static void (*onEnd_)() = nullptr;
 static bool droppedThisTurn_ = false;
 static es8311_handle_t codec_ = nullptr;
-static volatile uint32_t playedBytes_ = 0, playStart_ = 0;
+static volatile uint32_t playedBytes_ = 0, playStart_ = 0, underruns_ = 0; static bool starved_ = false;
 
 static size_t avail() { return (head_ + RING - tail_) % RING; }
 
@@ -44,10 +44,11 @@ static void audioTask(void*) {
       level_ = level_ * 0.6f + min(1.0f, rms * 4.0f) * 0.4f;
     } else {
       level_ *= 0.7f;
+      if (playing_ && !ending_ && !starved_) { starved_ = true; underruns_++; }   // ring ran dry mid-speech: audible gap
       if (playing_ && (ending_ || millis() - lastData_ > 1500)) {
         playing_ = false; level_ = 0; ending_ = false; endPending_ = true;
         uint32_t ms = millis() - playStart_;
-        dbg::log("[spk] played %u samples in %u ms (%.0f Hz effective)", (unsigned)(playedBytes_ / 2), (unsigned)ms, ms ? playedBytes_ / 2 * 1000.0f / ms : 0.0f);
+        dbg::log("[spk] played %u samples in %u ms, %u underruns", (unsigned)(playedBytes_ / 2), (unsigned)ms, (unsigned)underruns_);
       }
       vTaskDelay(pdMS_TO_TICKS(4));
     }
@@ -94,7 +95,8 @@ void feed(const uint8_t* pcm, size_t len) {
   size_t h = head_;
   for (size_t i = 0; i < len; i++) { ring_[h] = pcm[i]; h = (h + 1) % RING; }
   head_ = h;
-  if (!playing_) { playing_ = true; playedBytes_ = 0; playStart_ = millis(); }
+  starved_ = false;
+  if (!playing_) { playing_ = true; playedBytes_ = 0; playStart_ = millis(); underruns_ = 0; }
 }
 void endOfSpeech() { ending_ = true; droppedThisTurn_ = false; }
 void flush() { flushReq_ = true; endPending_ = false; droppedThisTurn_ = false; }

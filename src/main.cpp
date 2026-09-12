@@ -77,6 +77,7 @@ static void drawUpdateProgress(uint8_t pct, const char* stage) {
     ui.setTextDatum(MC_DATUM); ui.setTextColor(pxRGB(236, 238, 245), TFT_BLACK); ui.fillRect(60, 160, 200, 20, TFT_BLACK); ui.drawString(b, UI_W / 2, 170, 2);
   }
   if (!strcmp(stage, "rebooting")) drawn = false;
+  net::loop();                       // service the brain link on both sides of the (slow) frame push
   display::flush();
 }
 

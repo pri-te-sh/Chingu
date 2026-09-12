@@ -123,7 +123,7 @@ static void onEvent(WStype_t type, uint8_t* payload, size_t len) {
 #endif
       JsonObject caps = d["capabilities"].to<JsonObject>();
       #ifdef PIXEL_BOARD_3S
-      caps["speaker"] = true; caps["mic"] = true; caps["audio_in"] = "mulaw"; caps["camera"] = false; caps["touch"] = true; caps["display"] = "480x320";
+      caps["speaker"] = true; caps["mic"] = true; caps["audio_in"] = "mulaw"; caps["audio_buffer_s"] = 2.0; caps["camera"] = false; caps["touch"] = true; caps["display"] = "480x320";
 #else
       caps["speaker"] = true; caps["mic"] = false; caps["camera"] = false; caps["touch"] = true; caps["display"] = "320x240";
 #endif
