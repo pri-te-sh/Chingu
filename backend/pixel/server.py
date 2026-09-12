@@ -66,6 +66,7 @@ class Session:
         self.speaking_until = 0.0
         self.first_status = False
         self.batt_prev: str | None = None; self.batt_said: dict = {}       # battery remark policy state (see battery.py)
+        self.audio_buffer_s: float = 0.0     # from hello.capabilities: how much playback the device can hold
         self.auth_gen = (pixel.get("household_id"), pixel.get("token_hash"), pixel.get("archived"))   # ownership snapshot; any change revokes this socket
 
     async def still_authorized(self) -> bool:
@@ -187,6 +188,7 @@ async def respond(ws: WebSocket | None, sess: "Session | None", cfg: dict, user_
     tts_q: asyncio.Queue = asyncio.Queue()
     last_end = ""
     pace = bool(sess) and not sess.is_sim                                   # browser simulator can absorb bursts; ESP32 cannot
+    lead_s = min(1.5, 0.6 * sess.audio_buffer_s) if pace and sess.audio_buffer_s else DEVICE_AUDIO_LEAD_S   # devices with a big ring get a bigger cushion
     speech_t0 = None; paced_bytes = 0
     def audio_bytes_sent(extra: int) -> float:
         return (paced_bytes + extra) / (C.SAMPLE_RATE * 2)
@@ -210,7 +212,7 @@ async def respond(ws: WebSocket | None, sess: "Session | None", cfg: dict, user_
             if pace:                                                    # physical devices have ~0.75 s of buffer: stay ~0.4 s ahead of playback
                 sent_s = audio_bytes_sent(i + C.AUDIO_FRAME_BYTES)
                 ahead = sent_s - (time.time() - (speech_t0 or time.time()))
-                if ahead > DEVICE_AUDIO_LEAD_S: await asyncio.sleep(ahead - DEVICE_AUDIO_LEAD_S)
+                if ahead > lead_s: await asyncio.sleep(ahead - lead_s)
         paced_bytes += len(pcm)
         await send_json(ws, type="chunk", id=cid, state="ready", audio_s=round(len(pcm) / 2 / C.SAMPLE_RATE, 2))
         last_end = text.rstrip()[-1:]
@@ -418,6 +420,8 @@ async def ws_endpoint(ws: WebSocket):
     cfg = await settings.resolve(sess.hid, sess.pid)
     caps = pixel.get("capabilities") or {}
     audio_in = caps.get("audio_in") if caps.get("audio_in") in ("pcm16", "mulaw") else None   # uplink codec announced in hello
+    try: sess.audio_buffer_s = max(0.0, min(10.0, float(caps.get("audio_buffer_s") or 0)))
+    except (TypeError, ValueError): sess.audio_buffer_s = 0.0
     if not sess.is_sim:
         await bus.presence_set(device_id, pixel_id=sess.pid, household_id=sess.hid, connected_at=time.time(), status={}, busy=False)
         await repo.device_event(sess.pid, "connected", ip=ws.client.host if ws.client else None)
