@@ -18,3 +18,6 @@ docs/vendor/*.zip
 
 .DS_Store
 .env
+docs/vendor/3s/*.bin
+docs/vendor/3s/Demo.zip
+docs/vendor/3s/demo/

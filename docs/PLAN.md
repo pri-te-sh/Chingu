@@ -121,7 +121,8 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 - [x] Landing page for signed-out visitors (animated face, typewriter, motes, feature tiles; Google-only sign-in, dev login off in prod)
 
 ### P4 — Pixel-3S bring-up (after hardware arrives)
-- [ ] Download Waveshare 3.5B docs/demo pack; verify camera FPC orientation from schematic
+- [x] 2026-09-12: board arrived (`/dev/cu.usbmodem2101`, ESP32-S3R8, 16 MB quad flash, 8 MB PSRAM, MAC a0:f2:62:e3:19:c8). Factory image backed up to `docs/vendor/3s/factory-firmware-16MB.bin` (gitignored); schematic in `docs/vendor/3s/`, demo pack extracted there (gitignored). Pins from the vendor demos: LCD QSPI CS 12 / CLK 5 / D0-3 = 1,2,3,4, BL 6, LCD_RST via TCA9554 (0x20) EXIO1; I²C SDA 8 / SCL 7 shared by touch (AXS15231B), AXP2101 PMIC, QMI8658 IMU, PCF85063 RTC, ES8311 codec, camera SCCB; ES8311 I²S MCLK 44 / BCLK 13 / LRCK 15 / DOUT 16 / DIN 14; camera XCLK 38, PCLK 41, VSYNC 17, HREF 18, D2-D9 = 45,47,48,46,42,40,39,21, PWDN/RESET none (power via AXP BLDO1 1.5 V + BLDO2 2.8 V); SD_MMC D0 9; BOOT button IO0; battery/charging via AXP2101 (real fuel data + controllable charging, unlike the Lite)
+- [ ] Verify camera FPC orientation by running the vendor camera web server once
 - [ ] Firmware HAL split: `boards/lite`, `boards/3s`; PlatformIO envs
 - [ ] 3S: AXS15231B QSPI display + capacitive touch; face engine at 320×480
 - [ ] 3S: ES8311 mic/speaker via I²S; esp-sr AFE (AEC + NS) → full-duplex barge-in; wake word "Hey Pixel"
