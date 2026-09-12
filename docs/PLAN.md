@@ -123,8 +123,12 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 ### P4 — Pixel-3S bring-up (after hardware arrives)
 - [x] 2026-09-12: board arrived (`/dev/cu.usbmodem2101`, ESP32-S3R8, 16 MB quad flash, 8 MB PSRAM, MAC a0:f2:62:e3:19:c8). Factory image backed up to `docs/vendor/3s/factory-firmware-16MB.bin` (gitignored); schematic in `docs/vendor/3s/`, demo pack extracted there (gitignored). Pins from the vendor demos: LCD QSPI CS 12 / CLK 5 / D0-3 = 1,2,3,4, BL 6, LCD_RST via TCA9554 (0x20) EXIO1; I²C SDA 8 / SCL 7 shared by touch (AXS15231B), AXP2101 PMIC, QMI8658 IMU, PCF85063 RTC, ES8311 codec, camera SCCB; ES8311 I²S MCLK 44 / BCLK 13 / LRCK 15 / DOUT 16 / DIN 14; camera XCLK 38, PCLK 41, VSYNC 17, HREF 18, D2-D9 = 45,47,48,46,42,40,39,21, PWDN/RESET none (power via AXP BLDO1 1.5 V + BLDO2 2.8 V); SD_MMC D0 9; BOOT button IO0; battery/charging via AXP2101 (real fuel data + controllable charging, unlike the Lite)
 - [ ] Verify camera FPC orientation by running the vendor camera web server once
-- [ ] Firmware HAL split: `boards/lite`, `boards/3s`; PlatformIO envs
-- [ ] 3S: AXS15231B QSPI display + capacitive touch; face engine at 320×480
+- [x] 2026-09-12 Firmware HAL split: `board.h` per board (PIXEL_BOARD_LITE / PIXEL_BOARD_3S), `display` HAL, board-specific `speaker_3s.cpp` / `battery_3s.cpp` / `mic.cpp`; PlatformIO envs `cyd32` + `pixel3s` (16 MB, OPI PSRAM, USB CDC). Both build.
+- [x] 2026-09-12 3S display: TFT_eSPI renders into a 480×320 sprite in PSRAM, pushed over QSPI with Arduino_GFX (`Arduino_AXS15231B`, hardware rotation 1); AXS15231B capacitive touch over I²C; TCA9554 EXIO1 panel reset. Settings/status screens drawn in a centred 320×240 viewport for now; face geometry scaled to the panel
+- [x] 2026-09-12 3S battery: AXP2101 (real voltage/percent/charging; charger 500 mA, 4.2 V; BLDO1/2 camera rails powered first — an unpowered OV2640 clamps the shared I²C bus)
+- [x] 2026-09-12 3S speaker: ES8311 over I²S (MCLK 4.096 MHz), same ring/pacing design as the Lite
+- [x] 2026-09-12 3S microphone (first cut): ES8311 ADC → µ-law 128 kbit/s → brain (`capabilities.audio_in="mulaw"`, decoded in `audio_codec.py`); half-duplex (mic gated while speaking + 400 ms), `hello.aec=false`
+- [ ] 3S: esp-sr AFE (AEC + NS) → full-duplex barge-in; wake word "Hey Pixel"; UI re-layout for 480×320
 - [ ] 3S: ES8311 mic/speaker via I²S; esp-sr AFE (AEC + NS) → full-duplex barge-in; wake word "Hey Pixel"
 - [ ] 3S: OV2640 camera → presence, face tracking (eyes follow), face recognition, "look at this"
 - [ ] 3S: IMU gestures (pick-up, tap), battery guard (warn 3.55 V, deep-sleep 3.45 V), battery in heartbeat
