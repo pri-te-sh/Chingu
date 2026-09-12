@@ -11,7 +11,7 @@ def test_tag_parsing():
 
 
 def test_vad_detects_utterance():
-    vad = EnergyVAD(start_rms=900, end_rms=500, min_speech_ms=300)
+    vad = EnergyVAD(start_rms=900, end_rms=500, min_speech_ms=300, end_silence_ms=700)
     silence = (np.zeros(320, dtype=np.int16)).tobytes()
     loud = (np.random.randint(-6000, 6000, 320, dtype=np.int16)).tobytes()
     for _ in range(5): assert vad.feed(silence) is None
@@ -20,6 +20,11 @@ def test_vad_detects_utterance():
     for _ in range(50):                                      # ~1 s silence -> end of utterance
         got = vad.feed(silence) or got
     assert got and len(got) > 30 * 640
+    # the default pause is longer (people pause mid-sentence): 1 s of silence must NOT end the turn, 1.5 s must
+    vad = EnergyVAD(start_rms=900, end_rms=500, min_speech_ms=300)
+    for _ in range(30): vad.feed(loud)
+    assert all(vad.feed(silence) is None for _ in range(50))
+    assert any(vad.feed(silence) for _ in range(30))
 
 
 def test_narration_templates():
