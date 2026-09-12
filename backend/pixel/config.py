@@ -21,7 +21,7 @@ PIXEL_TOKEN = os.environ.get("PIXEL_TOKEN", "")          # shared secret; empty 
 # energy VAD
 VAD_START_RMS = int(os.environ.get("PIXEL_VAD_START_RMS", 900))
 VAD_END_RMS = int(os.environ.get("PIXEL_VAD_END_RMS", 500))
-VAD_END_SILENCE_MS = int(os.environ.get("PIXEL_VAD_END_SILENCE_MS", 700))
+VAD_END_SILENCE_MS = int(os.environ.get("PIXEL_VAD_END_SILENCE_MS", 1100))   # 700 cut sentences at natural pauses on the first 3S test
 VAD_MIN_SPEECH_MS = 300
 VAD_MAX_UTTERANCE_S = 20
 

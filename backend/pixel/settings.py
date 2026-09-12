@@ -17,6 +17,7 @@ DEFAULTS = {
     "tools_enabled": True, "tools_web": True, "web_results": 3, "tool_narration": True,
     "barge_in": True, "barge_rms": 2200, "barge_min_ms": 300,
     "battery_talk": True,           # Pixel remarks when it gets plugged in / full / hungry
+    "vad_end_silence_ms": 1100,      # pause length that ends your turn
     "mood_colors": {"love": "#FF6AD5", "annoyed": "#FF4A4A", "sad": "#4C8DFF", "thinking": "#4CC9F0",
                     "surprised": "#FFFFFF", "excited": "#FFD23F", "suspicious": "#B388FF",
                     "happy": "-", "curious": "-", "listening": "-", "sleepy": "-", "asleep": "-", "neutral": "-"},
@@ -35,7 +36,7 @@ PIXEL_KEYS = set(DEFAULTS) - HOUSEHOLD_KEYS
 
 
 _HEX = re.compile(r"^#[0-9A-Fa-f]{6}$")
-RANGES = {"auto_sleep_s": (5, 86400), "history_turns": (0, 100), "web_results": (1, 10), "barge_rms": (100, 30000), "barge_min_ms": (50, 5000),
+RANGES = {"vad_end_silence_ms": (400, 3000), "auto_sleep_s": (5, 86400), "history_turns": (0, 100), "web_results": (1, 10), "barge_rms": (100, 30000), "barge_min_ms": (50, 5000),
           "brief_refresh_min": (5, 1440), "session_gap_min": (1, 1440)}
 MAXLEN = {"name": 40, "persona": 4000, "owner": 80, "location": 120, "interests": 400, "chat_model": 120, "memory_model": 120}
 

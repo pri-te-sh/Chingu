@@ -5,7 +5,8 @@ from . import config as C
 
 
 class EnergyVAD:
-    def __init__(self, start_rms: int | None = None, end_rms: int | None = None, min_speech_ms: int | None = None):
+    def __init__(self, start_rms: int | None = None, end_rms: int | None = None, min_speech_ms: int | None = None, end_silence_ms: int | None = None):
+        self.end_silence_ms = end_silence_ms or C.VAD_END_SILENCE_MS   # how long a pause ends the utterance; people pause mid-sentence, so err long
         self.start_rms = start_rms or C.VAD_START_RMS
         self.end_rms = end_rms or C.VAD_END_RMS
         self.min_speech_ms = min_speech_ms or C.VAD_MIN_SPEECH_MS
@@ -42,7 +43,7 @@ class EnergyVAD:
         else:
             self.silence_ms = 0
 
-        if (self.silence_ms >= C.VAD_END_SILENCE_MS and self.speech_ms >= self.min_speech_ms) \
+        if (self.silence_ms >= self.end_silence_ms and self.speech_ms >= self.min_speech_ms) \
                 or self.speech_ms > C.VAD_MAX_UTTERANCE_S * 1000:
             utt = bytes(self.buffer)
             self.reset()

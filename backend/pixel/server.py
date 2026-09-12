@@ -421,7 +421,7 @@ async def ws_endpoint(ws: WebSocket):
     if not sess.is_sim:
         await bus.presence_set(device_id, pixel_id=sess.pid, household_id=sess.hid, connected_at=time.time(), status={}, busy=False)
         await repo.device_event(sess.pid, "connected", ip=ws.client.host if ws.client else None)
-    vad = EnergyVAD()
+    vad = EnergyVAD(end_silence_ms=int(cfg.get("vad_end_silence_ms") or 0) or None)
     barge = EnergyVAD(start_rms=cfg["barge_rms"], end_rms=C.VAD_END_RMS, min_speech_ms=cfg["barge_min_ms"])
     barge_ms = 0.0; was_speaking = False
     await send_json(ws, type="ready")
