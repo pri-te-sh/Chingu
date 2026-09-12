@@ -15,8 +15,10 @@
 #include "battery.h"
 #include "speedtest.h"
 #include <esp_heap_caps.h>
+#include "display.h"
+#include <Wire.h>
 
-TFT_eSPI tft;
+static TFT_eSPI& tft = display::gfx();
 Face face(tft);
 DebugUI debugUi(tft);
 
@@ -27,7 +29,8 @@ static void drawStateScreen() {
   bool changed = st != last || strcmp(lastCode, net::pairingCode()) != 0 || strcmp(lastSsid, prefs::wifiSsid) != 0;
   if (!changed) return;
   last = st; strlcpy(lastCode, net::pairingCode(), sizeof lastCode); strlcpy(lastSsid, prefs::wifiSsid, sizeof lastSsid);
-  if (st == net::READY) { face.begin(); prefs::apply(face, tft); return; }     // back to the face, fresh canvas
+  if (st == net::READY) { display::uiViewport(false); face.begin(); prefs::apply(face, tft); return; }     // back to the face, fresh canvas
+  display::uiViewport(true);
   tft.fillScreen(TFT_BLACK);
   tft.setTextDatum(MC_DATUM);
   // small closed eyes at the top so it still reads as Pixel
@@ -54,6 +57,7 @@ static void drawStateScreen() {
 
 // Full-screen progress while a firmware update downloads (the face is paused; nothing else runs).
 static void drawUpdateProgress(uint8_t pct, const char* stage) {
+  display::uiViewport(true);
   static bool drawn = false; static uint8_t lastPct = 255;
   if (!drawn) {
     drawn = true; tft.fillScreen(TFT_BLACK); tft.setTextDatum(MC_DATUM);
@@ -71,6 +75,7 @@ static void drawUpdateProgress(uint8_t pct, const char* stage) {
     tft.setTextDatum(MC_DATUM); tft.setTextColor(pxRGB(236, 238, 245), TFT_BLACK); tft.fillRect(60, 160, 200, 20, TFT_BLACK); tft.drawString(b, SCREEN_W / 2, 170, 2);
   }
   if (!strcmp(stage, "rebooting")) drawn = false;
+  display::flush();
 }
 
 // Portal push or the on-device Update screen asked for an install: check, download, reboot (or report failure).
@@ -86,9 +91,10 @@ static void runInstall() {
   }
 }
 
-static void toggleDebug() { if (debugUi.active()) { debugUi.exit(); face.begin(); prefs::apply(face, tft); } else debugUi.enter(); }
+static void toggleDebug() { if (debugUi.active()) { debugUi.exit(); display::uiViewport(false); face.begin(); prefs::apply(face, tft); } else { display::uiViewport(true); debugUi.enter(); } }
 
 static void setLed(bool r, bool g, bool b) {
+  if (PIN_LED_R < 0) return;
   digitalWrite(PIN_LED_R, r ? LOW : HIGH);
   digitalWrite(PIN_LED_G, g ? LOW : HIGH);
   digitalWrite(PIN_LED_B, b ? LOW : HIGH);
@@ -134,6 +140,17 @@ static void handleSerial() {
       else if (!strcmp(cmd, "srate") && a1) { speaker::setClock(atoi(a1)); Serial.printf("ok srate %s\n", a1); }
       else if (!strcmp(cmd, "update")) { ota::requestInstall(); Serial.printf("fw %s - asking the brain for the latest release; installs if newer\n", ota::version()); }
       else if (!strcmp(cmd, "speed")) { speedtest::start(262144, 131072); while (speedtest::busy()) { net::loop(); delay(50); } const auto& r = speedtest::result(); Serial.printf("speed down %lu kbit/s (err %d) up %lu kbit/s (err %d)\n", r.downKbps, r.downErr, r.upKbps, r.upErr); }
+      else if (!strcmp(cmd, "i2c")) {                    // i2c [sda scl] : rescan the bus, optionally on other pins (diagnostics)
+#ifdef PIXEL_BOARD_3S
+        int sda = PIN_I2C_SDA, scl = PIN_I2C_SCL; if (a1 && a2) { sda = atoi(a1); scl = atoi(a2); }
+        Wire.end(); delay(20); Wire.begin(sda, scl, 100000); Wire.setTimeOut(30);
+        Serial.printf("i2c scan sda=%d scl=%d: sda=%d scl=%d (idle levels)", sda, scl, digitalRead(sda), digitalRead(scl));
+        int found = 0, timeouts = 0;
+        for (uint8_t a = 1; a < 127; a++) { Wire.beginTransmission(a); uint8_t e = Wire.endTransmission(); if (e == 0) { Serial.printf(" 0x%02X", a); found++; } else if (e == 5) timeouts++; }
+        Serial.printf(" | found %d, timeouts %d\n", found, timeouts);
+        Wire.end(); delay(20); Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL, 100000); Wire.setTimeOut(50);
+#endif
+      }
       else if (!strcmp(cmd, "heap")) Serial.printf("heap free %u largest %u min %u\n", ESP.getFreeHeap(), heap_caps_get_largest_free_block(MALLOC_CAP_8BIT), ESP.getMinFreeHeap());
       else if (!strcmp(cmd, "bat")) Serial.printf("battery %u mV %u%% %s trend %d mV/min talk %d\n", battery::millivolts(), battery::percent(), battery::stateName(), battery::trendMvPerMin(), prefs::batteryTalk);
       else if (!strcmp(cmd, "id")) Serial.printf("device %s brain %s:%u tls %d paired %d\n", prefs::deviceId(), prefs::brainHost, prefs::brainPort, prefs::brainTls, prefs::hasToken());
@@ -150,19 +167,23 @@ void setup() {
   delay(200);
   Serial.printf("\n[pixel] boot - firmware %s\n", PIXEL_FW_VERSION);
 
+#ifdef PIXEL_BOARD_LITE
   pinMode(PIN_LED_R, OUTPUT); pinMode(PIN_LED_G, OUTPUT); pinMode(PIN_LED_B, OUTPUT); setLed(0, 0, 0);
   pinMode(PIN_AMP_EN, OUTPUT); digitalWrite(PIN_AMP_EN, LOW);    // amp enable (speaker.cpp drives it)
-  pinMode(PIN_BOOT_BTN, INPUT_PULLUP);
   pinMode(PIN_TOUCH_IRQ, INPUT);
-
-  tft.init();
-  tft.setRotation(SCREEN_ROTATION);
-  uint16_t calData[5] = { 366, 3573, 257, 3590, 3 };   // vendor calibration for rotation 1
-  tft.setTouch(calData);
+#endif
+  pinMode(PIN_BOOT_BTN, INPUT_PULLUP);
+#ifdef PIXEL_BOARD_3S
+  Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL, 100000); Wire.setTimeOut(50);   // shared bus: touch, PMIC, codec, IMU, RTC, expander, camera SCCB
+  battery::begin();                                                    // PMIC first: powers the camera rails before the bus is busy
+#endif
+  display::begin();
 
   Serial.printf("[pixel] heap before sprites: %u free, largest %u\n", ESP.getFreeHeap(), heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
   prefs::load();
+#ifndef PIXEL_BOARD_3S
   battery::begin();
+#endif
   ota::begin(); ota::onProgress(drawUpdateProgress);
   speaker::setVolume(prefs::volume / 100.0f);
   face.begin();
@@ -188,14 +209,14 @@ void loop() {
   if (millis() - lastTouchPoll > 25) {
     lastTouchPoll = millis();
     uint16_t x, y;
-    bool down = tft.getTouch(&x, &y, 300);
+    bool down = display::touch(x, y);
     if (down && !wasDown) {
       downSince = millis(); longFired = false;
-      if (debugUi.active()) debugUi.touch(x, y); else { face.touch(x, y); if (dbg::verbose) Serial.printf("touch (%u,%u)\n", x, y); }
+      if (debugUi.active()) debugUi.touch((int16_t)x - UI_X, (int16_t)y - UI_Y); else { face.touch(x, y); if (dbg::verbose) Serial.printf("touch (%u,%u)\n", x, y); }
     } else if (down && !longFired && millis() - downSince > 2000) {
       longFired = true; toggleDebug();
     } else if (down && !debugUi.active() && millis() - lastDrag > 150) {
-      lastDrag = millis(); face.lookAt((x - SCREEN_W / 2) / 160.0f, (y - 100) / 120.0f, 600);
+      lastDrag = millis(); face.lookAt((x - SCREEN_W / 2) / (SCREEN_W / 2.0f), (y - SCREEN_H * 100 / 240) / (SCREEN_H / 2.0f), 600);
     }
     wasDown = down;
   }
@@ -227,4 +248,5 @@ void loop() {
     if (dbg::verbose) Serial.printf("[pixel] loop=%u/s maxframe=%ums expr=%s heap=%u\n", frames / 5, face.takeMaxFrameUs() / 1000, expressionName(face.expression()), ESP.getFreeHeap());
     frames = 0; lastReport = millis();
   }
+  display::flush();
 }

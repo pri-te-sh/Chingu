@@ -1,4 +1,7 @@
 #include "prefs.h"
+#ifndef PIXEL_DEVICE_TYPE
+#define PIXEL_DEVICE_TYPE "lite"
+#endif
 #include <Preferences.h>
 #include <WiFi.h>
 
@@ -100,7 +103,7 @@ bool hasToken() { return token[0] != 0; }
 const char* deviceId() {
   if (!devId[0]) {
     uint8_t mac[6]; WiFi.macAddress(mac);
-    snprintf(devId, sizeof devId, "lite-%02x%02x%02x", mac[3], mac[4], mac[5]);
+    snprintf(devId, sizeof devId, PIXEL_DEVICE_TYPE "-%02x%02x%02x", mac[3], mac[4], mac[5]);
   }
   return devId;
 }

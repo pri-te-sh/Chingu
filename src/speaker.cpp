@@ -1,3 +1,5 @@
+#include "board.h"
+#ifdef PIXEL_BOARD_LITE
 #include "speaker.h"
 #include "board.h"
 #include "log.h"
@@ -123,3 +125,5 @@ void tone(float hz, uint16_t ms) {
   endOfSpeech();
 }
 }
+
+#endif

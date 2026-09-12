@@ -1,3 +1,5 @@
+#include "board.h"
+#ifdef PIXEL_BOARD_LITE
 #include "battery.h"
 #include "board.h"
 #include "log.h"
@@ -123,3 +125,5 @@ void loop() {
 
 bool changed() { bool c = changed_; changed_ = false; return c; }
 }
+
+#endif

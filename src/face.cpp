@@ -1,11 +1,12 @@
 #include "face.h"
+#include "display.h"
 #include "board.h"
 
 // ---------- geometry ----------
 static const int EYE_SPR = 124;            // eye sprite is square
 static const int MOUTH_W = 170, MOUTH_H = 60;
-static const int EYE_CY = 100;             // eye centre line
-static const int MOUTH_CY = 190;
+static const int EYE_CY = SCREEN_H * 100 / 240;      // eye centre line (laid out for 240 px tall, scaled to the panel)
+static const int MOUTH_CY = SCREEN_H * 190 / 240;
 static const int GAZE_RANGE_X = 18, GAZE_RANGE_Y = 12;
 
 static uint16_t eyeCol, mouthInner;
@@ -199,9 +200,9 @@ void Face::update() {
 
   int bob = (int)lroundf(breath_);
   int lx = SCREEN_W / 2 - (int)(p.spacing / 2) - EYE_SPR / 2, rx = SCREEN_W / 2 + (int)(p.spacing / 2) - EYE_SPR / 2;
-  eyeL_.pushSprite(lx, EYE_CY - EYE_SPR / 2 + bob);
-  eyeR_.pushSprite(rx, EYE_CY - EYE_SPR / 2 + bob);
-  mouth_.pushSprite(SCREEN_W / 2 - MOUTH_W / 2, MOUTH_CY - MOUTH_H / 2 + bob);
+  display::blit(eyeL_, lx, EYE_CY - EYE_SPR / 2 + bob);
+  display::blit(eyeR_, rx, EYE_CY - EYE_SPR / 2 + bob);
+  display::blit(mouth_, SCREEN_W / 2 - MOUTH_W / 2, MOUTH_CY - MOUTH_H / 2 + bob);
 
   if (sleeping) renderSleepZs();
   else if (zsDirty_) { tft_.fillRect(0, 0, SCREEN_W, 40, TFT_BLACK); zsDirty_ = false; }

@@ -1,4 +1,7 @@
 #include "net.h"
+#ifndef PIXEL_DEVICE_TYPE
+#define PIXEL_DEVICE_TYPE "lite"
+#endif
 #include "board.h"
 #include "log.h"
 #include "prefs.h"
@@ -38,7 +41,7 @@ const char* backendHost() { return prefs::brainHost; }
 uint16_t backendPort() { return prefs::brainPort; }
 bool tls() { return prefs::brainTls; }
 
-static void setLedBlue(bool on) { digitalWrite(PIN_LED_B, on ? LOW : HIGH); }
+static void setLedBlue(bool on) { if (PIN_LED_B >= 0) digitalWrite(PIN_LED_B, on ? LOW : HIGH); }
 static uint32_t since() { return millis() - turn_.t0; }
 static void sendStatus();
 static void wsConnect();
@@ -112,11 +115,15 @@ static void onEvent(WStype_t type, uint8_t* payload, size_t len) {
       dbg::log("[net] ws connected");
       state_ = CONNECTING_BRAIN;
       JsonDocument d;
-      d["type"] = "hello"; d["device"] = prefs::deviceId(); d["device_type"] = "lite"; d["fw"] = ota::version(); d["build"] = __DATE__ " " __TIME__;
+      d["type"] = "hello"; d["device"] = prefs::deviceId(); d["device_type"] = PIXEL_DEVICE_TYPE; d["fw"] = ota::version(); d["build"] = __DATE__ " " __TIME__;
       if (prefs::hasToken()) d["token"] = prefs::token;
       d["device_key"] = prefs::deviceKey;
       JsonObject caps = d["capabilities"].to<JsonObject>();
+      #ifdef PIXEL_BOARD_3S
+      caps["speaker"] = true; caps["mic"] = true; caps["audio_in"] = "mulaw"; caps["camera"] = false; caps["touch"] = true; caps["display"] = "480x320";
+#else
       caps["speaker"] = true; caps["mic"] = false; caps["camera"] = false; caps["touch"] = true; caps["display"] = "320x240";
+#endif
       String s; serializeJson(d, s); ws.sendTXT(s);
       break;
     }
