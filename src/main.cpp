@@ -16,6 +16,7 @@
 #include "speedtest.h"
 #include <esp_heap_caps.h>
 #include "display.h"
+#include "mic.h"
 #include <Wire.h>
 
 static TFT_eSPI& tft = display::gfx();
@@ -190,6 +191,9 @@ void setup() {
   prefs::apply(face, tft);
   Serial.printf("[pixel] heap after sprites: %u free, largest %u\n", ESP.getFreeHeap(), heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
   net::begin(face, tft);
+#ifdef PIXEL_BOARD_3S
+  mic::begin();
+#endif
   Serial.printf("[pixel] heap after net/speaker begin: %u free, largest %u\n", ESP.getFreeHeap(), heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
 }
 
@@ -199,6 +203,9 @@ void loop() {
   else drawStateScreen();
   net::loop();
   speaker::loop(); face.setTalk(speaker::level());
+#ifdef PIXEL_BOARD_3S
+  mic::loop();
+#endif
   battery::loop(); if (battery::changed()) net::sendStatusNow();
   ota::loop();
   if (ota::takeInstallRequest()) runInstall();

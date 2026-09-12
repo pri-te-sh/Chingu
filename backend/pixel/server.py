@@ -18,7 +18,7 @@ import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 
-from . import battery, ambient, auth, bus, config as C, firmware, inference, llm, memory, obs, repo, settings, tools
+from . import audio_codec, battery, ambient, auth, bus, config as C, firmware, inference, llm, memory, obs, repo, settings, tools
 from .chunker import Chunker
 from starlette.middleware.sessions import SessionMiddleware
 from .vad import EnergyVAD
@@ -417,6 +417,7 @@ async def ws_endpoint(ws: WebSocket):
     structlog.contextvars.bind_contextvars(pixel=pixel["id"], device=device_id)
     cfg = await settings.resolve(sess.hid, sess.pid)
     caps = pixel.get("capabilities") or {}
+    audio_in = caps.get("audio_in") if caps.get("audio_in") in ("pcm16", "mulaw") else None   # uplink codec announced in hello
     if not sess.is_sim:
         await bus.presence_set(device_id, pixel_id=sess.pid, household_id=sess.hid, connected_at=time.time(), status={}, busy=False)
         await repo.device_event(sess.pid, "connected", ip=ws.client.host if ws.client else None)
@@ -504,6 +505,7 @@ async def ws_endpoint(ws: WebSocket):
         while True:
             msg = await ws.receive()
             if msg.get("bytes") is not None:
+                if audio_in: msg = {"bytes": audio_codec.decode(audio_in, msg["bytes"])}
                 if mic_gated():
                     if not cfg["barge_in"] or hello.get("aec") is False: vad.reset(); continue
                     barge.feed(msg["bytes"])

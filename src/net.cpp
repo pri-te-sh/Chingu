@@ -118,6 +118,9 @@ static void onEvent(WStype_t type, uint8_t* payload, size_t len) {
       d["type"] = "hello"; d["device"] = prefs::deviceId(); d["device_type"] = PIXEL_DEVICE_TYPE; d["fw"] = ota::version(); d["build"] = __DATE__ " " __TIME__;
       if (prefs::hasToken()) d["token"] = prefs::token;
       d["device_key"] = prefs::deviceKey;
+#ifdef PIXEL_BOARD_3S
+      d["aec"] = false;                                                  // half-duplex for now: the brain must not expect barge-in
+#endif
       JsonObject caps = d["capabilities"].to<JsonObject>();
       #ifdef PIXEL_BOARD_3S
       caps["speaker"] = true; caps["mic"] = true; caps["audio_in"] = "mulaw"; caps["camera"] = false; caps["touch"] = true; caps["display"] = "480x320";
