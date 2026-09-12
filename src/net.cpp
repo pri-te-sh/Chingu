@@ -288,7 +288,7 @@ void loop() {
     if (time(nullptr) > 1700000000 || millis() - ntpStart > 20000) { dbg::log("[net] clock %s, connecting over TLS", time(nullptr) > 1700000000 ? "synced" : "NOT synced"); wsConnect(); }
   }
   if (holdOffUntil_ && millis() > holdOffUntil_) { holdOffUntil_ = 0; wsConnect(); dbg::log("[net] reconnecting to brain"); }
-  if (!holdOffUntil_ && !suspended_) ws.loop();
+  if (!holdOffUntil_ && !suspended_) for (int i = 0; i < 8; i++) ws.loop();   // WebSocketsClient handles one frame per call: drain what queued up while the loop was busy
   if (ready_ && millis() - lastStatus_ > 30000) { lastStatus_ = millis(); sendStatus(); }
 }
 

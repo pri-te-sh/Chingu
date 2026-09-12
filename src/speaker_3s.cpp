@@ -18,16 +18,20 @@ static volatile uint32_t lastData_ = 0;
 static void (*onEnd_)() = nullptr;
 static bool droppedThisTurn_ = false;
 static es8311_handle_t codec_ = nullptr;
-static volatile uint32_t playedBytes_ = 0, playStart_ = 0, underruns_ = 0; static bool starved_ = false;
+static volatile uint32_t playedBytes_ = 0, playStart_ = 0, underruns_ = 0, playMs_ = 0; static bool starved_ = false; static volatile bool summaryPending_ = false;
+static const size_t PRIME = 22400;                // 700 ms queued before output starts: Piper generates the first clause at ~1x real time, so a smaller cushion ran dry at ~330 ms
+static bool primed_ = false; static volatile uint32_t firstUnderrunMs_ = 0, primedMs_ = 0, minAvail_ = 0xFFFFFFFF;
 
 static size_t avail() { return (head_ + RING - tail_) % RING; }
 
 static void audioTask(void*) {
   static int16_t out[512];                        // 256 mono samples -> 256 stereo frames
   for (;;) {
-    if (flushReq_) { tail_ = head_; flushReq_ = false; ending_ = false; i2s_zero_dma_buffer(PORT); playing_ = false; level_ = 0; }
+    if (flushReq_) { tail_ = head_; flushReq_ = false; ending_ = false; primed_ = false; i2s_zero_dma_buffer(PORT); playing_ = false; level_ = 0; }
     size_t have = avail();
-    if (have >= 4) {
+    if (!primed_ && have >= 4 && (have >= PRIME || ending_)) { primed_ = true; primedMs_ = millis() - playStart_; }
+    if (primed_ && playing_ && have < minAvail_) minAvail_ = have;
+    if (primed_ && have >= 4) {
       size_t n = min(have, (size_t)512) & ~1u;
       float sum = 0;
       for (size_t i = 0; i < n; i += 2) {
@@ -44,11 +48,10 @@ static void audioTask(void*) {
       level_ = level_ * 0.6f + min(1.0f, rms * 4.0f) * 0.4f;
     } else {
       level_ *= 0.7f;
-      if (playing_ && !ending_ && !starved_) { starved_ = true; underruns_++; }   // ring ran dry mid-speech: audible gap
+      if (playing_ && primed_ && !ending_ && !starved_) { starved_ = true; if (!underruns_) firstUnderrunMs_ = millis() - playStart_; underruns_++; }   // ring ran dry mid-speech: audible gap
       if (playing_ && (ending_ || millis() - lastData_ > 1500)) {
-        playing_ = false; level_ = 0; ending_ = false; endPending_ = true;
-        uint32_t ms = millis() - playStart_;
-        dbg::log("[spk] played %u samples in %u ms, %u underruns", (unsigned)(playedBytes_ / 2), (unsigned)ms, (unsigned)underruns_);
+        playing_ = false; primed_ = false; level_ = 0; ending_ = false; endPending_ = true;
+        playMs_ = millis() - playStart_; summaryPending_ = true;            // logged from loop(): Serial is not thread-safe
       }
       vTaskDelay(pdMS_TO_TICKS(4));
     }
@@ -96,11 +99,14 @@ void feed(const uint8_t* pcm, size_t len) {
   for (size_t i = 0; i < len; i++) { ring_[h] = pcm[i]; h = (h + 1) % RING; }
   head_ = h;
   starved_ = false;
-  if (!playing_) { playing_ = true; playedBytes_ = 0; playStart_ = millis(); underruns_ = 0; }
+  if (!playing_) { playing_ = true; playedBytes_ = 0; playStart_ = millis(); underruns_ = 0; firstUnderrunMs_ = 0; primedMs_ = 0; minAvail_ = 0xFFFFFFFF; }
 }
 void endOfSpeech() { ending_ = true; droppedThisTurn_ = false; }
 void flush() { flushReq_ = true; endPending_ = false; droppedThisTurn_ = false; }
-void loop() { if (endPending_) { endPending_ = false; if (onEnd_) onEnd_(); } }
+void loop() {
+  if (summaryPending_) { summaryPending_ = false; dbg::log("[spk] played %u samples in %u ms, %u underruns (first at %u ms, primed at %u ms, min queued %u ms)", (unsigned)(playedBytes_ / 2), (unsigned)playMs_, (unsigned)underruns_, (unsigned)firstUnderrunMs_, (unsigned)primedMs_, (unsigned)(minAvail_ == 0xFFFFFFFF ? 0 : minAvail_ / 32)); }
+  if (endPending_) { endPending_ = false; if (onEnd_) onEnd_(); }
+}
 void onPlaybackEnd(void (*cb)()) { onEnd_ = cb; }
 void tone(float hz, uint16_t ms) {
   int16_t piece[512]; uint32_t total = RATE * ms / 1000, i = 0;
