@@ -128,7 +128,11 @@ Pixel-Lite / Pixel-3S / sim ──wss──► Caddy ─► brain (FastAPI, asyn
 - [x] 2026-09-12 3S battery: AXP2101 (real voltage/percent/charging; charger 500 mA, 4.2 V; BLDO1/2 camera rails powered first — an unpowered OV2640 clamps the shared I²C bus)
 - [x] 2026-09-12 3S speaker: ES8311 over I²S (MCLK 4.096 MHz), same ring/pacing design as the Lite
 - [x] 2026-09-12 3S microphone (first cut): ES8311 ADC → µ-law 128 kbit/s → brain (`capabilities.audio_in="mulaw"`, decoded in `audio_codec.py`); half-duplex (mic gated while speaking + 400 ms), `hello.aec=false`
-- [ ] 3S: esp-sr AFE (AEC + NS) → full-duplex barge-in; wake word "Hey Pixel"; UI re-layout for 480×320
+- [x] 2026-09-12 **First spoken conversation on the 3S** (mic → µ-law → Parakeet → gemma → Piper → ES8311), turns 3–6 s end to end. Found: 700 ms end-of-turn pause cut sentences → per-Pixel `vad_end_silence_ms` (default 1100) in Brain settings
+- [x] 2026-09-12 **Decision: Pixel-Lite discontinued** (underpowered, no battery management). 3S is the only target; Lite code stays but is unmaintained
+- [ ] 3S: re-layout the settings/status screens for 480×320 (currently a centred 320×240 layer); flush is 58 ms (software rotation) → rotate only dirty rows / DMA
+- [ ] 3S: esp-sr AFE (AEC + NS) → full-duplex barge-in; wake word "Hey Pixel"
+- [ ] 3S: camera back on (rails now powered first), run vendor web-server demo once for FPC orientation, then presence/face tracking
 - [ ] 3S: ES8311 mic/speaker via I²S; esp-sr AFE (AEC + NS) → full-duplex barge-in; wake word "Hey Pixel"
 - [ ] 3S: OV2640 camera → presence, face tracking (eyes follow), face recognition, "look at this"
 - [ ] 3S: IMU gestures (pick-up, tap), battery guard (warn 3.55 V, deep-sleep 3.45 V), battery in heartbeat
